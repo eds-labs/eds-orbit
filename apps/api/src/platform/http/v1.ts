@@ -12,7 +12,7 @@ import { clientIp } from "../../client-ip.ts";
 // The versioned machine API frame (ADR 0029, CH1.2). Modules mount routes
 // under /api/v1/<module>/... and build them from these helpers:
 // - `inV1`: API key, scope, module availability and enablement, one project transaction;
-// - `v1RateLimit`: per-key limits on top of the global per-address limit;
+// - `v1RateLimit`: per-address limit before and per-key limit after authentication;
 // - `sendCached`: ETag and Cache-Control instead of the global no-store;
 // - `idempotent`: Idempotency-Key replay, stored in the write's own transaction;
 // - `pageParams` / `page`: keyset pagination with opaque cursors.
@@ -25,27 +25,63 @@ export const V1_PREFIX = "/api/v1";
 export const V1_LIMITS = { delivery: 600, management: 120, preview: 60 } as const;
 export type V1Kind = keyof typeof V1_LIMITS;
 
-const prefixOf = (req: FastifyRequest) => {
-  const match = /^Bearer (ok_[a-z2-7]{12})_/.exec(String(req.headers.authorization ?? ""));
-  return match?.[1];
-};
-
 /**
- * Route config for a per-key rate limit. Requests without a well-formed key
- * share their address's bucket and fail authentication anyway.
+ * Route config of a v1 route. Two limits apply, both with the kind's rate:
+ * - per client address, before authentication, so failed or forged keys
+ *   cannot pick their own bucket (this replaces the global per-address limit
+ *   for the route, as @fastify/rate-limit uses either the route's or the
+ *   global limit);
+ * - per authenticated key, in `inV1` after the key resolved, so nobody can
+ *   spend another key's quota by sending its public prefix.
  */
 export const v1RateLimit = (kind: V1Kind) => ({
+  v1Kind: kind,
   rateLimit: {
     max: V1_LIMITS[kind],
     timeWindow: "1 minute",
-    keyGenerator: (req: FastifyRequest) => `v1:${kind}:${prefixOf(req) ?? `ip:${clientIp(req)}`}`,
+    keyGenerator: (req: FastifyRequest) => `v1:${kind}:ip:${clientIp(req)}`,
   },
 });
 
+type KeyLimiter = (req: FastifyRequest) => Promise<{ isExceeded: boolean }>;
+const keyLimiters = new WeakMap<object, Map<V1Kind, KeyLimiter>>();
+const limitedKey = Symbol("v1LimitedKey");
+
+/** The per-key limiter of a kind, sharing the rate-limit plugin's store. */
+function keyLimiter(req: FastifyRequest, kind: V1Kind): KeyLimiter | null {
+  const server = req.server as unknown as {
+    createRateLimit?: (options: unknown) => KeyLimiter;
+  };
+  if (typeof server.createRateLimit !== "function") return null;
+  let byKind = keyLimiters.get(server);
+  if (!byKind) keyLimiters.set(server, (byKind = new Map()));
+  let limiter = byKind.get(kind);
+  if (!limiter) {
+    limiter = server.createRateLimit({
+      max: V1_LIMITS[kind],
+      timeWindow: "1 minute",
+      keyGenerator: (r: FastifyRequest) => `v1key:${kind}:${(r as unknown as Record<symbol, string>)[limitedKey]}`,
+    });
+    byKind.set(kind, limiter);
+  }
+  return limiter;
+}
+
+/** Counts a request against its authenticated key; 429 RATE_LIMITED beyond the kind's rate. */
+export async function limitKey(req: FastifyRequest, keyId: string) {
+  const kind = (req.routeOptions?.config as { v1Kind?: V1Kind } | undefined)?.v1Kind;
+  if (!kind) return;
+  const limiter = keyLimiter(req, kind);
+  if (!limiter) return;
+  (req as unknown as Record<symbol, string>)[limitedKey] = keyId;
+  const result = await limiter(req);
+  if (result.isExceeded) throw new DomainError("RATE_LIMITED", 429);
+}
+
 /**
- * Authenticates the key, checks the scope, the scope module's availability
- * and its enablement in the key's project, then runs `work` in one project
- * transaction with the key's scope (never a member).
+ * Authenticates the key, applies its rate limit, checks the scope, the scope
+ * module's availability and its enablement in the key's project, then runs
+ * `work` in one project transaction with the key's scope (never a member).
  */
 export async function inV1<T>(
   req: FastifyRequest,
@@ -53,6 +89,7 @@ export async function inV1<T>(
   work: (tx: DbTx, principal: ApiPrincipal) => Promise<T>,
 ): Promise<T> {
   const principal = await resolveApiKey(req.headers.authorization);
+  await limitKey(req, principal.keyId);
   requireApiScope(principal, scopeKey);
   const owner = registeredApiScopes().get(scopeKey)!.owner;
   return scoped(principal.workspaceId, principal.projectId, async (tx) => {

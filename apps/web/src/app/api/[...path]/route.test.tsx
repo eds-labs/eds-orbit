@@ -101,6 +101,77 @@ describe("API proxy", () => {
     expect(forwarded[0]!.get("cookie")).toBeNull();
   });
 
+  it("forwards Idempotency-Key and If-None-Match under /api/v1/ and keeps its caching", async () => {
+    const forwarded: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: URL, init: RequestInit) => {
+        forwarded.push(new Headers(init.headers));
+        return new Response(null, {
+          status: 304,
+          headers: {
+            etag: '"abc"',
+            "cache-control": "private, max-age=60",
+            vary: "Authorization",
+          },
+        });
+      }),
+    );
+    const request = new NextRequest(
+      "https://orbit.example/api/v1/cms/sites/s/entries",
+      {
+        headers: {
+          authorization: "Bearer ok_x",
+          "if-none-match": '"abc"',
+          "idempotency-key": "retry-1234",
+        },
+      },
+    );
+    const response = await GET(request, {
+      params: Promise.resolve({ path: ["v1", "cms", "sites", "s", "entries"] }),
+    });
+    expect(forwarded[0]!.get("if-none-match")).toBe('"abc"');
+    expect(forwarded[0]!.get("idempotency-key")).toBe("retry-1234");
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"abc"');
+    expect(response.headers.get("cache-control")).toBe("private, max-age=60");
+  });
+
+  it("keeps public media caching but forces no-store elsewhere", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("x", {
+            status: 200,
+            headers: { "cache-control": "public, max-age=31536000, immutable" },
+          }),
+      ),
+    );
+    const media = await GET(
+      new NextRequest(
+        "https://orbit.example/api/public/cms/media/p/a/w480.webp",
+      ),
+      {
+        params: Promise.resolve({
+          path: ["public", "cms", "media", "p", "a", "w480.webp"],
+        }),
+      },
+    );
+    expect(media.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    const other = await GET(
+      new NextRequest("https://orbit.example/api/projects/p"),
+      {
+        params: Promise.resolve({ path: ["projects", "p"] }),
+      },
+    );
+    expect(other.headers.get("cache-control")).toBe("no-store, max-age=0");
+    const header = await call({ "idempotency-key": "retry-1234" });
+    expect(header.get("idempotency-key")).toBeNull();
+  });
+
   it("forwards the right-most X-Forwarded-For hop as the client address", async () => {
     const headers = await call({
       "x-forwarded-for": "203.0.113.9, 198.51.100.7",

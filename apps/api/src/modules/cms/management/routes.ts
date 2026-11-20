@@ -2,7 +2,8 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
 import type { RoutesContribution } from "../../../platform/http/routes.ts";
-import { idempotent, inV1, v1RateLimit, V1_PREFIX, type V1Result } from "../../../platform/http/v1.ts";
+import { refuseLiveReference } from "./live-references.ts";
+import { idempotent, inV1, limitKey, v1RateLimit, V1_PREFIX, type V1Result } from "../../../platform/http/v1.ts";
 import { requireApiScope, resolveApiKey, type ApiPrincipal } from "../../../platform/api-keys/keys.ts";
 import type { RequestedBy } from "../../../platform/governance/action-requests.ts";
 import { assertModuleEnabled } from "../../../platform/modules/enforcement.ts";
@@ -119,14 +120,20 @@ export const cmsManagementRoutes: RoutesContribution = ({ app }) => {
   app.get(T, config, (req) => manage(req, READ, (tx, p) => listTerms(tx, p.scope, req.query)));
   app.post(T, config, (req, reply) => write(req, reply, WRITE, async (tx, p) => ({ status: 201, body: await createTerm(tx, p.scope, req.body) })));
   app.patch(`${T}/:termId`, config, (req, reply) =>
-    write(req, reply, WRITE, async (tx, p) => ({ status: 200, body: await updateTerm(tx, p.scope, param(req, "termId"), req.body) })),
+    write(req, reply, WRITE, async (tx, p) => {
+      await refuseLiveReference(tx, p.scope, "term", param(req, "termId"));
+      return { status: 200, body: await updateTerm(tx, p.scope, param(req, "termId"), req.body) };
+    }),
   );
 
   const A = `${B}/authors`;
   app.get(A, config, (req) => manage(req, READ, (tx, p) => listAuthors(tx, p.scope, req.query)));
   app.post(A, config, (req, reply) => write(req, reply, WRITE, async (tx, p) => ({ status: 201, body: await createAuthor(tx, p.scope, req.body) })));
   app.patch(`${A}/:authorId`, config, (req, reply) =>
-    write(req, reply, WRITE, async (tx, p) => ({ status: 200, body: await updateAuthor(tx, p.scope, param(req, "authorId"), req.body) })),
+    write(req, reply, WRITE, async (tx, p) => {
+      await refuseLiveReference(tx, p.scope, "author", param(req, "authorId"));
+      return { status: 200, body: await updateAuthor(tx, p.scope, param(req, "authorId"), req.body) };
+    }),
   );
 
   app.get(`${B}/sites`, config, (req) => manage(req, READ, (tx, p) => listSites(tx, p.scope, req.query)));
@@ -135,7 +142,10 @@ export const cmsManagementRoutes: RoutesContribution = ({ app }) => {
   app.get(M, config, (req) => manage(req, READ, (tx, p) => listAssets(tx, p.scope, req.query)));
   app.get(`${M}/:assetId`, config, (req) => manage(req, READ, (tx, p) => getAsset(tx, p.scope, param(req, "assetId"))));
   app.patch(`${M}/:assetId`, config, (req, reply) =>
-    write(req, reply, WRITE, async (tx, p) => ({ status: 200, body: await updateAsset(tx, p.scope, param(req, "assetId"), req.body) })),
+    write(req, reply, WRITE, async (tx, p) => {
+      await refuseLiveReference(tx, p.scope, "asset", param(req, "assetId"));
+      return { status: 200, body: await updateAsset(tx, p.scope, param(req, "assetId"), req.body) };
+    }),
   );
   // Upload: raw image bytes. The key is checked before the body is read; an
   // identical image is stored once (200 with the existing asset), so a
@@ -154,6 +164,7 @@ export const cmsManagementRoutes: RoutesContribution = ({ app }) => {
         config: v1RateLimit("management"),
         onRequest: async (req) => {
           const principal = await resolveApiKey(req.headers.authorization);
+          await limitKey(req, principal.keyId);
           requireApiScope(principal, WRITE);
           unfiltered(principal);
           await scoped(principal.workspaceId, principal.projectId, (tx) => assertModuleEnabled(tx, principal.scope, CMS_MODULE_ID));

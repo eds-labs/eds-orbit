@@ -296,6 +296,10 @@ describe.skipIf(!enabled)("content publishing", () => {
     expect(redirects).toEqual(
       expect.arrayContaining([expect.objectContaining({ fromPath: `/blog/${slug}/`, toEntryId: entryId, code: 301, reason: "slug_changed" })]),
     );
+    // A manual redirect cannot withdraw the live address (that needs an approved withdrawal).
+    const away = await call("editor", "POST", `/sites/${siteId}/redirects`, { fromPath: "/blog/kalender-teilen/", code: 410 });
+    expect(away.statusCode, away.body).toBe(409);
+    expect(away.json().error.code).toBe("CMS_REDIRECT_LIVE_PATH");
     const deliveries = await run((tx) => tx.webhookDelivery.findMany({ where: { projectId }, orderBy: { createdAt: "asc" } }));
     expect(deliveries.map((d) => d.eventType)).toEqual(["cms.entry.published", "cms.entry.updated", "cms.redirect.created"]);
     expect(deliveries[1]!.payload).toEqual({

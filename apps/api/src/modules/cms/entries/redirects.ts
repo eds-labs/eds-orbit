@@ -175,10 +175,36 @@ const createInput = z
   })
   .strict();
 
+/**
+ * True when a live entry of the site answers at `at`. A manual redirect from
+ * there would withdraw or move live content without the approval a
+ * withdrawal needs, so it is refused.
+ */
+async function isLivePath(tx: DbTx, scope: Scope, site: { id: string; routes: unknown; trailingSlash: boolean }, at: string) {
+  const links = await tx.cmsEntrySite.findMany({ where: { projectId: scope.projectId, siteId: site.id }, select: { entryId: true } });
+  if (!links.length) return false;
+  const live = await tx.cmsEntry.findMany({
+    where: { projectId: scope.projectId, id: { in: links.map((l) => l.entryId) }, publishedRevisionId: { not: null } },
+    select: { type: true, locale: true, publishedRevisionId: true },
+  });
+  if (!live.length) return false;
+  const revisions = await tx.cmsRevision.findMany({
+    where: { projectId: scope.projectId, id: { in: live.map((e) => e.publishedRevisionId!) } },
+    select: { id: true, slug: true },
+  });
+  const slugOf = new Map(revisions.map((r) => [r.id, r.slug]));
+  const routes = siteRoutes.parse(site.routes);
+  return live.some((entry) => {
+    const slug = slugOf.get(entry.publishedRevisionId!);
+    return slug !== undefined && entryPath(routes, entry.type, entry.locale, slug, site.trailingSlash) === at;
+  });
+}
+
 /** A manual redirect; replaces an active one from the same path. */
 export async function createRedirect(tx: DbTx, scope: Scope, siteId: string, raw: unknown) {
-  await requireSite(tx, scope, siteId);
+  const site = await requireSite(tx, scope, siteId);
   const input = createInput.parse(raw);
+  if (await isLivePath(tx, scope, site, input.fromPath)) throw refused("CMS_REDIRECT_LIVE_PATH", 409);
   const targets = Number(Boolean(input.toPath)) + Number(Boolean(input.toEntryId));
   if (input.code === 410 ? targets !== 0 : targets !== 1) throw refused("CMS_REDIRECT_TARGET_INVALID", 422);
   if (input.toPath === input.fromPath) throw refused("CMS_REDIRECT_LOOP", 422);

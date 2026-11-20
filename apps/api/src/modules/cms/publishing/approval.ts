@@ -10,6 +10,7 @@ import {
   type RequestedBy,
 } from "../../../platform/governance/action-requests.ts";
 import { can } from "../../../platform/tenancy/permissions.ts";
+import { apiKeyCreator } from "../../../platform/api-keys/keys.ts";
 import { audit, data } from "../../../shared.ts";
 import { findEntry, lockEntry, notFound, refused, requireVersion, UUID_RE, versionInput } from "../entries/common.ts";
 import { getEntry, sitesOf } from "../entries/entries.ts";
@@ -37,6 +38,11 @@ export { PUBLISH_ACTION, UNPUBLISH_ACTION } from "./requests.ts";
 const hex64 = z.string().regex(/^[0-9a-f]{64}$/);
 const decision = {
   requesterId: z.string().min(1),
+  /**
+   * The person answerable for the request: the member, or the member who
+   * created the API key that asked. Four-eyes keeps both from deciding.
+   */
+  accountableUserId: z.string().min(1).optional(),
   /** The settings when the request was made: they decide who sees it in Decisions. */
   approvers: z.enum(["owner", "owner_or_editor"]),
   fourEyes: z.boolean(),
@@ -78,7 +84,12 @@ const unpublishPayload = z
   .strict();
 export type UnpublishPayload = z.infer<typeof unpublishPayload>;
 
-type Decidable = { requesterId: string; approvers: CmsSettings["publishApprovers"]; fourEyes: boolean };
+type Decidable = {
+  requesterId: string;
+  accountableUserId?: string;
+  approvers: CmsSettings["publishApprovers"];
+  fourEyes: boolean;
+};
 
 const stale = (reason: string) => refused("CMS_REQUEST_STALE", 409, { reason });
 
@@ -86,14 +97,14 @@ const stale = (reason: string) => refused("CMS_REQUEST_STALE", 409, { reason });
 function allowedBy(member: Scope, rules: Decidable) {
   if (!can(member, CMS_PUBLISH_DECIDE)) return false;
   if (rules.approvers === "owner" && member.role !== "owner") return false;
-  return !(rules.fourEyes && member.userId === rules.requesterId);
+  return !(rules.fourEyes && (member.userId === rules.requesterId || member.userId === rules.accountableUserId));
 }
 
 /** The current settings decide, not those the request was made under. */
-async function requireDecider(tx: DbTx, scope: Scope, requesterId: string) {
+async function requireDecider(tx: DbTx, scope: Scope, payload: Pick<Decidable, "requesterId" | "accountableUserId">) {
   const { settings } = await readCmsSettings(tx, scope);
-  if (!allowedBy(scope, { requesterId, approvers: settings.publishApprovers, fourEyes: settings.fourEyes }))
-    throw refused("CMS_DECIDER_NOT_ALLOWED", 403);
+  const rules = { ...payload, approvers: settings.publishApprovers, fourEyes: settings.fourEyes };
+  if (!allowedBy(scope, rules)) throw refused("CMS_DECIDER_NOT_ALLOWED", 403);
 }
 
 const sameSites = async (tx: DbTx, scope: Scope, entryId: string, siteIds: readonly string[]) =>
@@ -216,7 +227,7 @@ const publishDefinition: ActionDefinition<PublishPayload> = {
   }),
   async revalidate(tx, scope, payload) {
     await requireCms(tx, scope);
-    await requireDecider(tx, scope, payload.requesterId);
+    await requireDecider(tx, scope, payload);
     await checkPublish(tx, scope, payload);
   },
   async onApproved(tx, scope, request) {
@@ -244,7 +255,7 @@ const unpublishDefinition: ActionDefinition<UnpublishPayload> = {
   }),
   async revalidate(tx, scope, payload) {
     await requireCms(tx, scope);
-    await requireDecider(tx, scope, payload.requesterId);
+    await requireDecider(tx, scope, payload);
     await checkUnpublish(tx, scope, payload);
   },
   async onApproved(tx, scope, request) {
@@ -285,7 +296,13 @@ async function refuseWhilePending(tx: DbTx, scope: Scope, entryId: string) {
 
 async function rulesFor(tx: DbTx, scope: Scope, by: RequestedBy) {
   const { settings } = await readCmsSettings(tx, scope);
-  const rules: Decidable = { requesterId: by.userId, approvers: settings.publishApprovers, fourEyes: settings.fourEyes };
+  const accountableUserId = by.kind === "api_key" ? await apiKeyCreator(by.keyId, scope) : by.userId;
+  const rules: Decidable = {
+    requesterId: by.userId,
+    ...(accountableUserId ? { accountableUserId } : {}),
+    approvers: settings.publishApprovers,
+    fourEyes: settings.fourEyes,
+  };
   // Only a member acting in Orbit publishes directly; agents and clients propose.
   return { settings, rules, direct: by.kind === "user" && by.userId === scope.userId && allowedBy(scope, rules) };
 }

@@ -40,7 +40,7 @@ describe.skipIf(!enabled)("content management API", () => {
       headers: { authorization: `Bearer ${token}`, [CLIENT_IP_HEADER]: ip(), ...headers },
       ...(payload ? { payload } : {}),
     });
-  const member = (method: "GET" | "POST", url: string, payload?: object) =>
+  const member = (method: "GET" | "POST" | "PUT", url: string, payload?: object) =>
     app.inject({ method, url, headers: { origin, cookie, [CLIENT_IP_HEADER]: ip() }, ...(payload ? { payload } : {}) });
   const code = (response: { json(): { error?: { code: string } } }) => response.json().error?.code;
   const run = <T>(work: Parameters<typeof scoped<T>>[2]) => scoped(workspaceId, projectId, work);
@@ -177,6 +177,52 @@ describe.skipIf(!enabled)("content management API", () => {
     });
     expect(code(refusedRead)).toBe("API_KEY_SCOPE_MISSING");
     expect((await api(tokens.read, "GET", `/assets/${asset.id}`)).json()).toMatchObject({ alt: { de: "Eine Familie" } });
+  });
+
+  it("a key cannot change an author that live content shows", async () => {
+    const shown = await api(tokens.write, "POST", "/authors", { name: "Live-Redaktion" });
+    const unused = await api(tokens.write, "POST", "/authors", { name: "Ungenutzt" });
+    expect(shown.statusCode, shown.body).toBe(201);
+    const a = shown.json() as { id: string; version: number };
+    const b = unused.json() as { id: string; version: number };
+    const { entryId, draftVersion } = await draftEntry("Mit Autorin");
+    const linked = await api(tokens.write, "PATCH", `/entries/${entryId}/draft`, { version: draftVersion, authorIds: [a.id] });
+    expect(linked.statusCode, linked.body).toBe(200);
+    const published = await member("POST", `/api/projects/${projectId}/cms/entries/${entryId}/publication-requests`, {
+      draftVersion: linked.json().draft.version,
+    });
+    expect(published.statusCode, published.body).toBe(200);
+    const refusedChange = await api(tokens.write, "PATCH", `/authors/${a.id}`, { version: a.version, bio: { de: "Neu" } });
+    expect(refusedChange.statusCode).toBe(409);
+    expect(code(refusedChange)).toBe("CMS_LIVE_REFERENCE");
+    expect((await api(tokens.write, "PATCH", `/authors/${b.id}`, { version: b.version, name: "Noch ungenutzt" })).statusCode).toBe(200);
+  });
+
+  it("four-eyes keeps the member who created the key from approving its proposal", async () => {
+    const status = (await member("GET", `/api/projects/${projectId}/cms/status`)).json();
+    const set = (fourEyes: boolean, version: number) =>
+      member("PUT", `/api/projects/${projectId}/cms/settings`, { version, settings: { ...status.settings, fourEyes } });
+    const on = await set(true, status.settingsVersion);
+    expect(on.statusCode, on.body).toBe(200);
+    try {
+      const key = await createApiKey(ownerScope(), { name: "four eyes", scopes: ["cms:manage.read", "cms:publish.propose"], confirmWrite: true });
+      const { entryId, draftVersion } = await draftEntry("Vier Augen");
+      const proposed = await api(key.token, "POST", `/entries/${entryId}/publication-requests`, { draftVersion });
+      expect(proposed.statusCode, proposed.body).toBe(202);
+      const requestId = proposed.json().requestId as string;
+      const row = await run((tx) => tx.entity.findFirstOrThrow({ where: { id: requestId } }));
+      expect((row.data as { payload: { accountableUserId?: string } }).payload.accountableUserId).toBe(ownerId);
+      const decided = await member("POST", `/api/projects/${projectId}/action-requests/${requestId}/decide`, {
+        version: row.version,
+        packageHash: (row.data as { packageHash: string }).packageHash,
+        decision: "approve",
+      });
+      expect(decided.statusCode).toBe(403);
+      expect((await api(tokens.read, "GET", `/entries/${entryId}`)).json().entry.status).toBe("draft");
+    } finally {
+      const now = (await member("GET", `/api/projects/${projectId}/cms/status`)).json();
+      expect((await set(false, now.settingsVersion)).statusCode).toBe(200);
+    }
   });
 
   it("a key proposes; a person decides; a revoked key's proposal no longer executes", async () => {

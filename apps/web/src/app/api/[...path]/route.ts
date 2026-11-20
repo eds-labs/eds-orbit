@@ -27,6 +27,9 @@ const oauthHeaders = [...forwardedHeaders, "authorization"];
 // The public API (WP4.2b) authenticates by key, origin and bearer token only
 // and never reads a cookie, so an Orbit session cookie does not travel there.
 const publicHeaders = oauthHeaders.filter((name) => name !== "cookie");
+// The versioned API (ADR 0029) also reads a write's Idempotency-Key and a
+// cached read's If-None-Match (304 answers).
+const v1Headers = [...publicHeaders, "idempotency-key", "if-none-match"];
 // A provider's webhook (WP4.2a) is signed with headers of its own choosing
 // (x-hub-signature-256, stripe-signature, webhook-id ...), so under
 // /api/hooks/ every header passes except these. The hooks route reads no
@@ -73,16 +76,24 @@ async function proxy(
   // nowhere else does the API read it. The versioned API (ADR 0029) takes a
   // project API key and, like the public API, never an Orbit session cookie.
   const oauth = path[0] === "auth" && path[1] === "oauth2";
+  // Their answers carry their own caching (ETag reads, immutable media), which
+  // websites and their CDNs rely on while Orbit is unreachable.
+  const cacheable =
+    path[0] === "v1" ||
+    (path[0] === "public" && path[1] === "cms" && path[2] === "media");
   return forwardToApi(
     request,
     `/api/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
     path[0] === "hooks"
       ? hookHeaders(request)
-      : path[0] === "public" || path[0] === "v1"
-        ? publicHeaders
-        : oauth
-          ? oauthHeaders
-          : forwardedHeaders,
+      : path[0] === "v1"
+        ? v1Headers
+        : path[0] === "public"
+          ? publicHeaders
+          : oauth
+            ? oauthHeaders
+            : forwardedHeaders,
+    { keepCaching: cacheable },
   );
 }
 export {

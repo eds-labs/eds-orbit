@@ -230,6 +230,15 @@ export function requireApiScope(principal: ApiPrincipal, key: string) {
   if (!principal.scopes.includes(key)) throw new DomainError("API_KEY_SCOPE_MISSING", 403);
 }
 
+/** The member who created a key of the project (four-eyes, ADR 0029 §4.6). */
+export async function apiKeyCreator(keyId: string, scope: Pick<Scope, "workspaceId" | "projectId">) {
+  const row = await authDb.apiKey.findFirst({
+    where: { id: keyId, workspaceId: scope.workspaceId, projectId: scope.projectId },
+    select: { createdBy: true },
+  });
+  return row?.createdBy;
+}
+
 /**
  * True while a key may still have its proposals executed: it exists in the
  * project, is not revoked and has not expired (ADR 0029, CH1.13).

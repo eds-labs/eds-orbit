@@ -51,6 +51,13 @@ type Upstream = {
   api: boolean;
   /** How long a request may wait for the upstream before it answers 502. */
   timeoutMs: number;
+  /**
+   * Keep the upstream's Cache-Control instead of forcing no-store: only for
+   * paths whose answers are built to be cached (the versioned API's ETag
+   * reads and the public media route, ADR 0029). The API sends no-store
+   * everywhere else itself.
+   */
+  keepCaching?: boolean;
 };
 
 /** Cookie-setting response headers; only the API's reach the browser. */
@@ -106,7 +113,8 @@ async function forward(
     if (upstreamOrigin.api)
       for (const cookie of upstream.headers.getSetCookie())
         returned.append("set-cookie", cookie);
-    returned.set("Cache-Control", "no-store, max-age=0");
+    if (!(upstreamOrigin.keepCaching && upstream.headers.get("cache-control")))
+      returned.set("Cache-Control", "no-store, max-age=0");
     returned.set("X-Content-Type-Options", "nosniff");
     return new Response(upstream.body, {
       status: upstream.status,
@@ -134,12 +142,14 @@ export function forwardToApi(
   request: NextRequest,
   pathname: string,
   forwardedHeaders: readonly string[],
+  options: { keepCaching?: boolean } = {},
 ) {
   return forward(
     {
       origin: process.env.ORBIT_API_ORIGIN || "http://127.0.0.1:4311",
       api: true,
       timeoutMs: 45000,
+      keepCaching: options.keepCaching === true,
     },
     request,
     pathname,

@@ -152,8 +152,14 @@ export async function liveTerms(tx: DbTx, scope: Pick<Scope, "projectId">, site:
     orderBy: [{ locale: "asc" }, { name: "asc" }],
     take: 1000,
   });
+  // Only terms live content on this site uses, with their parents: a key
+  // for one site does not list another site's or a draft's categories.
+  const parentOf = new Map(terms.map((t) => [t.id, t.parentId]));
+  const shown = new Set<string>();
+  for (const id of counts.keys())
+    for (let at: string | null | undefined = id; at && !shown.has(at); at = parentOf.get(at)) shown.add(at);
   return {
-    items: terms.map((t) => ({
+    items: terms.filter((t) => shown.has(t.id)).map((t) => ({
       id: t.id,
       locale: t.locale,
       translationGroupId: t.translationGroupId,

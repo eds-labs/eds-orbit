@@ -230,7 +230,8 @@ describe.skipIf(!enabled)("content delivery API", () => {
     expect((await v1(deliveryKey, `/sites/${siteId}/entries/article/by-slug/${deSlug}`)).statusCode).toBe(200);
     expect(code(await v1(deliveryKey, `/sites/${siteId}/entries/article/by-slug/${deSlug}?locale=en`))).toBe("CMS_ENTRY_NOT_FOUND");
 
-    // Taxonomies with counts, authors (none), redirects (none yet).
+    // Taxonomies with counts (only terms live content uses), authors (none), redirects (none yet).
+    expect((await call("editor", "POST", "/terms", { kind: "category", locale: "de", name: "Unbenutzt" })).statusCode).toBe(201);
     const terms = (await v1(deliveryKey, `/sites/${siteId}/taxonomies/category?locale=de`)).json().items;
     expect(terms).toMatchObject([{ id: termId, slug, entries: 1 }]);
     expect(code(await v1(deliveryKey, `/sites/${siteId}/taxonomies/colour`))).toBe("CMS_TAXONOMY_NOT_FOUND");

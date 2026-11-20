@@ -173,12 +173,31 @@ describe.skipIf(!enabled)("/api/v1 frame (CH1.2)", () => {
     expect(await remaining()).toBe(total - 1);
   });
 
-  it("limits requests per key", async () => {
+  it("limits requests per address before and per key after authentication", async () => {
     expect(V1_LIMITS.management).toBe(120);
     const limited = v1RateLimit("management").rateLimit;
     const keyed = (authorization?: string) =>
       limited.keyGenerator({ headers: authorization ? { authorization } : {}, ip: "203.0.113.1", socket: {} } as never);
-    expect(keyed(`Bearer ${writeToken}`)).toBe(`v1:management:${writeToken.slice(0, 15)}`);
-    expect(keyed()).toMatch(/^v1:management:ip:/);
+    // The route bucket never follows a (possibly forged) key prefix.
+    expect(keyed(`Bearer ${writeToken}`)).toMatch(/^v1:management:ip:/);
+    expect(keyed(`Bearer ${writeToken}`)).toBe(keyed());
+    // A forged key with the real key's prefix fails without spending the key's quota.
+    const forged = `${writeToken.slice(0, 16)}${"A".repeat(writeToken.length - 16)}`;
+    for (let i = 0; i < 3; i++) {
+      const refused = await app.inject({
+        method: "POST",
+        url: "/api/v1/probe/notes",
+        headers: { authorization: `Bearer ${forged}` },
+        payload: {},
+      });
+      expect(refused.statusCode).toBe(401);
+    }
+    const real = await app.inject({
+      method: "POST",
+      url: "/api/v1/probe/notes",
+      headers: { authorization: `Bearer ${writeToken}` },
+      payload: {},
+    });
+    expect(real.statusCode).toBe(201);
   });
 });
