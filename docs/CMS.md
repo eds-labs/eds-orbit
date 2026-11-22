@@ -2,7 +2,7 @@
 
 Orbit's content hub for website articles ([ADR 0029](adr/0029-content-module.md), plan [CONTENT_HUB.md](plans/CONTENT_HUB.md)). Orbit stores entries, their immutable revisions, media, categories, tags and authors. Websites read the live content through the [delivery API](CMS_API.md), so publishing an article needs no commit or deploy on the website. Agents and integrations write drafts and propose publications; a person in Orbit decides.
 
-Status (2026-11-20): phase 1 (CH1.1–CH1.18) is implemented and accepted locally on the branch `claude/orbit-content-hub-architecture-0894a4`: backend, web pages, an independent security and UI review with its fixes, and the browser acceptance `apps/web/tests/cms.spec.ts` (run with `E2E_CMS=1` on a stack seeded by `E2E_CMS=1 node scripts/seed-e2e.ts`). It is not pushed, and every flag is off. Delivery needs Mario's approval of the schema hash for the three migrations and of the push to `main`.
+Status (2026-11-22): phase 1 (CH1.1–CH1.18) is on `main` (`c008eb2d`) and deployed to production with its three migrations; every flag (`ORBIT_CMS`, `ORBIT_API_V1`, `ORBIT_WEBHOOKS`) is off, so nothing is visible or reachable yet. The browser acceptance is `apps/web/tests/cms.spec.ts` (run with `E2E_CMS=1` on a stack seeded by `E2E_CMS=1 node scripts/seed-e2e.ts`). Switching the flags on and enabling the module for a project need Mario's approval.
 
 ## Switching it on
 
