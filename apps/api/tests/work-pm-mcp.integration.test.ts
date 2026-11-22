@@ -31,7 +31,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
-const READS = ["work_pm_findings", "work_pm_get_plan", "work_pm_get_report", "work_pm_status"];
+const READS = ["work_pm_coding_repositories", "work_pm_findings", "work_pm_get_plan", "work_pm_get_report", "work_pm_status"];
 const PROPOSALS = ["work_pm_propose_changes", "work_pm_propose_coding_run", "work_pm_propose_plan", "work_pm_propose_report"];
 const ALL = ["orbit:read", "orbit:propose", "orbit:work", "orbit:work.pm", "orbit:work.coding"];
 
@@ -193,6 +193,26 @@ describe.skipIf(!enabled)("AI project manager MCP tools", () => {
     const runs = await p.run((tx) => tx.workCodingRun.findMany({ where: { taskId: task.id } }));
     expect(runs.map((r) => [r.status, r.personalDataReviewed])).toEqual([["dispatched", true]]);
     expect(JSON.stringify(runs[0]!.brief)).not.toContain("1234567");
+  });
+
+  it("lists the configured repositories and accepts a key or owner/name, nothing else", async () => {
+    expect((await op(principal, "work_pm_coding_repositories", {})).result).toEqual({
+      items: [
+        { key: "orbit", label: "Orbit", provider: "github", fullName: "eds-labs/eds-orbit", defaultBranch: "main", dispatch: "manual" },
+      ],
+    });
+    const task = await p.run((tx) => createTask(tx, p.owner, { title: "Repository by name" }, p.as(p.owner)));
+    const brief = { number: task.number, goal: "Fix the filter", acceptanceCriteria: ["Filter works"] };
+    for (const repositoryKey of ["eds-orbit", "eds-labs/other", "orbit-x"])
+      expect(await failure(op(principal, "work_pm_propose_coding_run", { ...brief, idempotencyKey: `unknown-${repositoryKey}`, repositoryKey }))).toBe(
+        "WORK_CODING_REPOSITORY_UNKNOWN",
+      );
+    const proposal = await op(principal, "work_pm_propose_coding_run", { ...brief, idempotencyKey: "by-name", repositoryKey: "EDS-Labs/EDS-Orbit" });
+    expect(proposal).toMatchObject({ status: "pending", requiresApproval: true });
+    await decide(p.owner, proposal.actionRequestId);
+    const runs = await p.run((tx) => tx.workCodingRun.findMany({ where: { taskId: task.id } }));
+    // The run keeps the canonical key and the configured owner/name.
+    expect(runs.map((r) => [r.repositoryKey, (r.brief as { repository: string }).repository])).toEqual([["orbit", "eds-labs/eds-orbit"]]);
   });
 
   it("dispatches an editor's coding proposal once the owner approves it", async () => {

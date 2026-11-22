@@ -12,6 +12,7 @@ import {
 import type { Locale } from "@/lib/i18n";
 import { Alert, Badge, Button, Modal } from "@/components/ui/primitives";
 import { DataForm, num, str } from "@/platform/ui/form";
+import { runAfterReleaseCheck } from "./release-impact";
 
 // Search index state per knowledge source (plans/knowledge-indexing-repair.md):
 // whether its documents can be found now, why not, and the owner's repairs
@@ -183,11 +184,11 @@ export function SourceIndexPanel({
           <Button
             variant="outline"
             disabled={mutation.pending}
-            onClick={() =>
-              mutation.run(() =>
+            onClick={async () => {
+              await runAfterReleaseCheck(mutation.run, projectId, locale, () =>
                 action(projectId, "source-reindex", { sourceId: source.id }),
-              )
-            }
+              );
+            }}
           >
             <RefreshCw data-icon="inline-start" />
             {de ? "Neu indexieren" : "Reindex"}
@@ -261,19 +262,20 @@ export function SourceIndexPanel({
             error={mutation.error}
             submitLabel={de ? "Speichern" : "Save"}
             onCancel={() => setSettings(false)}
-            onSubmit={(v) =>
-              mutation
-                .run(() =>
+            onSubmit={async (v) => {
+              const result = await runAfterReleaseCheck(
+                mutation.run,
+                projectId,
+                locale,
+                () =>
                   action(projectId, "source-settings", {
                     sourceId: source.id,
                     authority: str(v, "authority"),
                     maxAgeHours: num(v, "maxAgeHours"),
                   }),
-                )
-                .then((result) => {
-                  if (result) setSettings(false);
-                })
-            }
+              );
+              if (result) setSettings(false);
+            }}
           />
         </Modal>
       )}

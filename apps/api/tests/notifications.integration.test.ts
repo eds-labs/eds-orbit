@@ -194,6 +194,48 @@ describe.skipIf(!enabled)("member notifications", () => {
         inApp: true,
         email: false,
       },
+      // Marketing's released-post watch kinds (registered with the module).
+      {
+        kind: "marketing_post_at_risk",
+        moduleId: "marketing",
+        label: {
+          en: "A released post will not be published",
+          de: "Ein freigegebener Post wird nicht veröffentlicht",
+        },
+        inApp: true,
+        email: true,
+      },
+      {
+        kind: "marketing_post_at_risk_cleared",
+        moduleId: "marketing",
+        label: {
+          en: "An at-risk post can be published again",
+          de: "Ein gefährdeter Post kann wieder veröffentlicht werden",
+        },
+        inApp: true,
+        email: false,
+      },
+      // Marketing's Drive watch kinds.
+      {
+        kind: "marketing_drive_reconnect_required",
+        moduleId: "marketing",
+        label: {
+          en: "Google Drive needs to be reconnected",
+          de: "Google Drive muss neu verbunden werden",
+        },
+        inApp: true,
+        email: true,
+      },
+      {
+        kind: "marketing_drive_reconnected",
+        moduleId: "marketing",
+        label: {
+          en: "Google Drive is connected again",
+          de: "Google Drive ist wieder verbunden",
+        },
+        inApp: true,
+        email: false,
+      },
     ]);
     expect(
       (

@@ -69,7 +69,8 @@ endpoint. Repeating an approval returns the recorded result.
   budget; an owner or editor approves), and `orbit:work.coding` offers
   `work_pm_propose_coding_run` (the owner approves the exact redacted brief,
   which dispatches it). The PM reads (`work_pm_status`, `work_pm_findings`,
-  `work_pm_get_report`, `work_pm_get_plan`) and `work_pm_propose_changes`
+  `work_pm_get_report`, `work_pm_get_plan`, `work_pm_coding_repositories`)
+  and `work_pm_propose_changes`
   need `orbit:work`. Delegated work orders may read the PM's state but are
   refused every PM tool that spends or dispatches. See
   [AI project manager](WORK.md#ai-project-manager-phase-2-adr-0017).
@@ -142,6 +143,8 @@ the gateway's 64 KiB cap; lists expose opaque pagination cursors.
 | `knowledge_propose_fact` | A candidate, never implicit verification |
 | `knowledge_verify_fact` | Exact owner-verified values through native fact/conflict rules |
 | `knowledge_withdraw_fact` | Version-bound withdrawal and downstream invalidation |
+
+With `ORBIT_RELEASED_POST_WATCH` on, `knowledge_add_document` and `knowledge_import_url` results carry `releaseImpact` (`count`, plus titles, slots and channels for callers with Marketing access) when the change would block released posts until a new index evaluation is active. It is computed before the write, advisory only, and never blocks it; delegated-agent and MCP-task executions store only `{ count }`.
 
 The original `orbit_profile`, `orbit_projects`, `search`, `fetch`,
 `marketing_project_status`, `support_insights`, `orbit_action_status` and

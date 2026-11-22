@@ -13,6 +13,25 @@ export const marketingSignalNotifications: Readonly<Record<string, UserNotificat
     emailDefault: false,
     proactive: true,
   },
+  // A released post that would be refused at its slot (and its all-clear): the
+  // watch writes these directly, naming the post and the reasons for the owners.
+  marketing_post_at_risk: {
+    label: { en: "A released post will not be published", de: "Ein freigegebener Post wird nicht veröffentlicht" },
+    emailDefault: true,
+  },
+  marketing_post_at_risk_cleared: {
+    label: { en: "An at-risk post can be published again", de: "Ein gefährdeter Post kann wieder veröffentlicht werden" },
+    emailDefault: false,
+  },
+  // Google rejected the project's Drive access (and its all-clear): the Drive watch writes these.
+  marketing_drive_reconnect_required: {
+    label: { en: "Google Drive needs to be reconnected", de: "Google Drive muss neu verbunden werden" },
+    emailDefault: true,
+  },
+  marketing_drive_reconnected: {
+    label: { en: "Google Drive is connected again", de: "Google Drive ist wieder verbunden" },
+    emailDefault: false,
+  },
 };
 
 export const marketingSignals: readonly SignalDefinition[] = [

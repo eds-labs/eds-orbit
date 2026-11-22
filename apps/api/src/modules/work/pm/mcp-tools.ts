@@ -15,6 +15,7 @@ import { approveCodingDispatch, codingBriefInput, createCodingRun } from "./codi
 import { requestPlan } from "./planner.ts";
 import { requestReport } from "./reporter.ts";
 import { readPmSettings } from "./settings.ts";
+import { findRepository, REPOSITORY_REF_MAX } from "./settings-schema.ts";
 
 // The AI project manager's MCP proposals (plan §2.9, WP2.10). Outside
 // clients always go through an approval in Orbit: asking for a plan or a
@@ -175,7 +176,7 @@ export const workPmProposeChanges = approvedOperation({
 const codingInput = codingBriefInput
   .extend({
     number: z.int().min(1),
-    repositoryKey: z.string().min(1).max(41),
+    repositoryKey: z.string().min(1).max(REPOSITORY_REF_MAX),
     ceilingMicros: z.int().min(0).max(100_000_000).optional(),
   })
   .strict();
@@ -185,7 +186,7 @@ export const workPmProposeCodingRun = approvedOperation({
   ...base,
   name: "work_pm_propose_coding_run",
   description:
-    "Propose a coding work order for one task by number: repository key, goal, acceptance criteria and constraints for an external coding agent. Personal data and credentials are removed; the owner approves the exact redacted brief in Orbit, which dispatches it. Never asks to merge or deploy.",
+    "Propose a coding work order for one task by number: repository (its key or GitHub owner/name, as listed by work_pm_coding_repositories), goal, acceptance criteria and constraints for an external coding agent. Personal data and credentials are removed; the owner approves the exact redacted brief in Orbit, which dispatches it. Never asks to merge or deploy.",
   input: codingInput,
   permission: WORK_PM_USE,
   mcpScopes: [WORK_SCOPE, WORK_CODING_SCOPE],
@@ -219,7 +220,9 @@ export const workPmProposeCodingRun = approvedOperation({
     if (!task) throw new DomainError("WORK_TASK_NOT_FOUND", 404);
     if (["done", "canceled"].includes(task.statusCategory)) throw new DomainError("WORK_TASK_CLOSED", 409);
     const { settings } = await readPmSettings(tx, scope);
-    if (!settings.repositories.some((r) => r.key === args.repositoryKey))
+    // Only repositories an owner configured in the PM settings (Work →
+    // Settings → AI project manager → Repositories).
+    if (!findRepository(settings.repositories, args.repositoryKey))
       throw new DomainError("WORK_CODING_REPOSITORY_UNKNOWN", 422);
   },
   // The owner decides (deciderRole); the run acts as the proposing member.

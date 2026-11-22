@@ -90,6 +90,7 @@ function PmSettingsForm() {
         </label>
         <fieldset className="work-stack">
           <legend>{t.repositories}</legend>
+          <p className="support-muted">{t.repositoriesHint}</p>
           <ul className="settings-rows">
             {draft.repositories.map((r, i) => (
               <li key={i} className="work-settings-row">

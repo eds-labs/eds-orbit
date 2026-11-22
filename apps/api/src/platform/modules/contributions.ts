@@ -142,6 +142,16 @@ export type ModuleContributions = {
    */
   knowledgeImpact?: ImpactHandler;
   /**
+   * The module's released, pending records whose publication depends on the
+   * live index evaluation, read before a corpus change warns about them
+   * (released-post watch, C). Read-only; called only while the module is
+   * enabled for the project, with the caller's scope.
+   */
+  releaseGateDependents?: (
+    tx: DbTx,
+    scope: Scope,
+  ) => Promise<ReleaseGateDependent[]>;
+  /**
    * The permission each of the module's actions needs, by action name
    * (WP4.1); an action without one needs the writer level.
    */
@@ -258,6 +268,18 @@ export type ModuleContributions = {
    * module's own prefix or be a contract event the module owns.
    */
   automationResults?: Readonly<Record<string, AutomationResultHandler>>;
+};
+
+/**
+ * A released record the live index gate would block: a name to show (never
+ * its text), its slot (ISO) with the project's time zone, and channel names.
+ */
+export type ReleaseGateDependent = {
+  id: string;
+  title: string;
+  slotAt: string;
+  timeZone: string;
+  channels: string[];
 };
 
 /** A strictly validated result of an automation callback and what it updates. */
@@ -1079,6 +1101,19 @@ export function registeredImpactHandlers(): readonly ImpactHandler[] {
   return [...current().byModule.values()]
     .map((c) => c.knowledgeImpact)
     .filter((h): h is ImpactHandler => Boolean(h));
+}
+
+/**
+ * Release-gate dependents with their module, in registry order; the caller
+ * filters by activation and by the member's module role.
+ */
+export function registeredReleaseGateDependents(): ReadonlyArray<{
+  moduleId: string;
+  list: NonNullable<ModuleContributions["releaseGateDependents"]>;
+}> {
+  return [...current().byModule.entries()].flatMap(([moduleId, c]) =>
+    c.releaseGateDependents ? [{ moduleId, list: c.releaseGateDependents }] : [],
+  );
 }
 
 /** Pause and resume hooks: platform first, then modules in registry order. */

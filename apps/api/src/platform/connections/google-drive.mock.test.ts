@@ -554,6 +554,33 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
       status: 415,
     });
   });
+  it("drops the Drive watch's local copy when a re-import finds a changed file", async () => {
+    add("drive_connection", {
+      encryptedRefreshToken: encrypt("synthetic-refresh", "a".repeat(64)),
+    });
+    add("drive_storage", { rootFolderId: root, enabled: true });
+    const copy = {
+      base64: "AAAA",
+      sha256: "b".repeat(64),
+      localCopySource: "drive",
+      localCopyAt: "2026-11-19T12:00:00.000Z",
+    };
+    // Same Drive version: the copy stays.
+    const first = await importDriveFile(scope, logo, "logo");
+    const stored = state.rows.find((r) => r.id === first.id)!;
+    stored.data = { ...stored.data, ...copy };
+    expect(data(await importDriveFile(scope, logo, "logo"))).toMatchObject(copy);
+    // Changed Drive file: the copy goes, so Drive is read and checked again.
+    state.driveFiles[logo].md5Checksum = "changed";
+    const changed = data(await importDriveFile(scope, logo, "logo"));
+    expect(changed).toMatchObject({ md5Checksum: "changed" });
+    for (const field of ["base64", "sha256", "localCopySource", "localCopyAt"])
+      expect(changed[field]).toBeUndefined();
+    // A generated image's own bytes (no Drive-watch copy) are never dropped.
+    stored.data = { ...stored.data, base64: "CCCC", sha256: "c".repeat(64) };
+    state.driveFiles[logo].md5Checksum = "changed-again";
+    expect(data(await importDriveFile(scope, logo, "logo"))).toMatchObject({ base64: "CCCC" });
+  });
   it("checks an approved file version before returning bytes", async () => {
     add("drive_connection", {
       encryptedRefreshToken: encrypt("synthetic-refresh", "a".repeat(64)),

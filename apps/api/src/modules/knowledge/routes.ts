@@ -17,7 +17,11 @@ import {
 } from "../../platform/knowledge/evaluation-set.ts";
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
-import { PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
+import {
+  PROJECT_OWN,
+  PROJECT_WRITE,
+} from "../../platform/tenancy/permissions.ts";
+import { releaseImpact } from "../../platform/knowledge/release-impact.ts";
 import { data, list, entity } from "../../shared.ts";
 
 /**
@@ -133,6 +137,16 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
         take: 200,
       }),
     }));
+  });
+  // What a corpus change would block now (released-post watch, C). Writers
+  // may change the corpus (import), so they may ask; the posts' details
+  // follow the caller's Marketing role, the count does not.
+  app.get("/api/projects/:projectId/knowledge/release-impact", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      releaseImpact(tx, scope),
+    );
   });
   app.get("/api/projects/:projectId/indexes", async (req) => {
     const { projectId } = req.params as { projectId: string };

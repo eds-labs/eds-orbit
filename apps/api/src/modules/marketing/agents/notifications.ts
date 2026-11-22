@@ -48,6 +48,12 @@ export const NOTIFY_KINDS = [
   "delivery_changed",
   // A draft-delivery assignment planned no run today: Postiz drafts are switched off (M3).
   "drafts_disabled",
+  // A released post that would be refused at its slot, and the all-clear (released-post watch).
+  "at_risk",
+  "at_risk_cleared",
+  // Google rejected the project's Drive access, and the all-clear (Drive watch).
+  "drive_reconnect",
+  "drive_reconnected",
   "daily_report",
   "marketing_report",
 ] as const;
@@ -110,7 +116,7 @@ export async function nextDailyReportAt(
 }
 
 // Blockers that need no notice: the owner stopped the post or paused the project himself.
-const OWNER_CAUSED = ["VETOED", "PROJECT_PAUSED"];
+export const OWNER_CAUSED = ["VETOED", "PROJECT_PAUSED"];
 
 /**
  * Reports a post that was blocked at claim or handoff although the owner was

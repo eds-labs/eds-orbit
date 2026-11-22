@@ -25,6 +25,22 @@ export const pmRepositorySchema = z
   .strict();
 export type PmRepository = z.infer<typeof pmRepositorySchema>;
 
+/** The longest repository reference a coding proposal may name (`owner/name`). */
+export const REPOSITORY_REF_MAX = 201;
+
+/**
+ * The configured repository a coding proposal names: by its key, or by its
+ * GitHub `owner/name` (case-insensitive, as GitHub treats it). Callers keep
+ * the repository's key as the canonical reference.
+ */
+export function findRepository(repositories: readonly PmRepository[], ref: string) {
+  const wanted = ref.trim();
+  const byKey = repositories.find((r) => r.key === wanted);
+  if (byKey) return byKey;
+  const name = wanted.toLowerCase();
+  return repositories.find((r) => r.fullName.toLowerCase() === name);
+}
+
 export const PM_AUTONOMY = ["propose", "comment_only"] as const;
 
 export const pmSettingsSchema = z

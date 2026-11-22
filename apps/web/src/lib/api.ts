@@ -206,6 +206,16 @@ export function useResource<T>(path: string | null) {
   }, [path, revision]);
   return { data, error, loading, refresh, path: loadedPath, errorPath };
 }
+/**
+ * Thrown inside a `useMutation` task to stop it without a request having
+ * failed (the person cancelled a confirmation): no error, no success.
+ */
+export class MutationCanceled extends Error {
+  constructor() {
+    super("MUTATION_CANCELED");
+    this.name = "MutationCanceled";
+  }
+}
 export function useMutation(onSuccess?: () => void) {
   const [pending, setPending] = useState(false),
     [error, setError] = useState<string | null>(null),
@@ -223,6 +233,7 @@ export function useMutation(onSuccess?: () => void) {
       onSuccess?.();
       return result;
     } catch (e) {
+      if (e instanceof MutationCanceled) return undefined;
       setError(e instanceof Error ? e.message : "Request failed.");
       return undefined;
     } finally {

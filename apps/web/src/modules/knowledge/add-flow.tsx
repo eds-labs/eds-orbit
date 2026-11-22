@@ -40,6 +40,7 @@ import {
   type Preview,
   type Summary,
 } from "./workspace-parts";
+import { runAfterReleaseCheck } from "./release-impact";
 import { GithubSource } from "./github-page";
 
 type Kind = KnowledgeDraft["kind"];
@@ -874,15 +875,19 @@ function Flow({
   };
   const takeOverContent = async () => {
     const { autoUpdate: _weekly, ...use } = rights;
-    const source = await mutation.run(() =>
-      action<Entity>(project.id, "knowledge-content-accept", {
-        name: draft.name,
-        text: draft.text,
-        kind: draft.kind,
-        language: project.language,
-        ...use,
-        ...(draftId ? { draftId } : {}),
-      }),
+    const source = await runAfterReleaseCheck(
+      mutation.run,
+      project.id,
+      locale,
+      () =>
+        action<Entity>(project.id, "knowledge-content-accept", {
+          name: draft.name,
+          text: draft.text,
+          kind: draft.kind,
+          language: project.language,
+          ...use,
+          ...(draftId ? { draftId } : {}),
+        }),
     );
     if (!source) return;
     setOutcome({ kind: "content", sourceId: source.id });
@@ -891,19 +896,23 @@ function Flow({
   };
   const readSite = async () => {
     if (!site) return;
-    const started = await mutation.run(() =>
-      action<{ sourceId: string; run: Entity; started: boolean }>(
-        project.id,
-        "knowledge-site-start",
-        {
-          ...(sourceId ? { sourceId } : { url: site.rootUrl }),
-          name: draft.name,
-          excludedPages: excludedForStart(excluded, site.pages),
-          ...rights,
-          language: init.sourceLanguage || project.language,
-          ...(draftId ? { draftId } : {}),
-        },
-      ),
+    const started = await runAfterReleaseCheck(
+      mutation.run,
+      project.id,
+      locale,
+      () =>
+        action<{ sourceId: string; run: Entity; started: boolean }>(
+          project.id,
+          "knowledge-site-start",
+          {
+            ...(sourceId ? { sourceId } : { url: site.rootUrl }),
+            name: draft.name,
+            excludedPages: excludedForStart(excluded, site.pages),
+            ...rights,
+            language: init.sourceLanguage || project.language,
+            ...(draftId ? { draftId } : {}),
+          },
+        ),
     );
     if (!started) return;
     setOutcome({

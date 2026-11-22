@@ -9,13 +9,18 @@ import {
   postizQueueHealth,
 } from "./publishing/postiz-queue-watch.ts";
 import { driveAssetRetry } from "./brand/drive-retry.ts";
+import { driveConnectionWatch } from "./brand/drive-watch.ts";
 import { syncSocialHolds } from "./publishing/publisher.ts";
+import {
+  nextReleasedPostWatchAt,
+  runReleasedPostWatch,
+} from "./publishing/released-post-watch.ts";
 
 /**
  * Marketing's per-project worker tasks (WP2.1), in the order the worker ran
  * them before: saved Matomo imports, the read-only Postiz queue check, the
- * Drive retry of generated images (WP2.5d), then announcing released posts
- * in Social's calendar.
+ * Drive retry of generated images (WP2.5d), the Drive connection watch,
+ * then announcing released posts in Social's calendar.
  */
 export const marketingPeriodicTasks: readonly PeriodicTask[] = [
   {
@@ -37,9 +42,17 @@ export const marketingPeriodicTasks: readonly PeriodicTask[] = [
     health: { summarize: postizQueueHealth },
   },
   driveAssetRetry,
+  // Warns the owners when Drive needs a reconnect; keeps local image copies.
+  driveConnectionWatch,
   {
     // Social's calendar follows Marketing; no wake-up of its own (a write wakes the project).
     name: "social-hold-sync",
     run: syncSocialHolds,
+  },
+  {
+    // Early warning for released posts that would be refused at their slot; read-only.
+    name: "released-post-watch",
+    nextDueAt: nextReleasedPostWatchAt,
+    run: runReleasedPostWatch,
   },
 ];

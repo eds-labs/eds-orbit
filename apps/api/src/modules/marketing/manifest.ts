@@ -31,6 +31,16 @@ export const marketingModule: ServerModule = {
     { kind: "missions", description: "Campaign missions" },
     { kind: "content", description: "Drafts and reviewed content" },
     { kind: "publications", description: "Scheduled and published posts" },
+    {
+      kind: "publication_watch",
+      description:
+        "Ahead-of-slot check state of released posts; no publishing authority",
+    },
+    {
+      kind: "drive_watch",
+      description:
+        "Drive connection watch state (last check, outage, notice); no Drive authority",
+    },
     { kind: "approvals", description: "Content package approvals" },
     {
       kind: "assignments",

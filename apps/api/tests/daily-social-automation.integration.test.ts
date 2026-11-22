@@ -91,6 +91,7 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
 import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
 import { create, data, list, update } from "../src/shared.ts";
+import { userScoped } from "../src/platform/tenancy/scope.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { strategySpecialist } from "../src/modules/marketing/agents/specialists/strategy.ts";
@@ -106,6 +107,16 @@ import {
   reconcilePublication,
   syncSocialHolds,
 } from "../src/modules/marketing/publishing/publisher.ts";
+import {
+  atRiskReason,
+  postRisk,
+  runReleasedPostWatch,
+  watchCandidates,
+} from "../src/modules/marketing/publishing/released-post-watch.ts";
+import * as policyModule from "../src/modules/marketing/policy/policy.ts";
+import * as notificationsModule from "../src/modules/marketing/agents/notifications.ts";
+import { marketingNotifications } from "../src/modules/marketing/agents/notification-messages.ts";
+import { invalidateContent } from "../src/modules/marketing/pipeline/content-invalidation.ts";
 import { marketingJobs } from "../src/modules/marketing/jobs.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { claimPublication as claimMarketingPublication } from "../src/modules/marketing/pipeline/workflow.ts";
@@ -1013,6 +1024,295 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
       expect(await states()).toEqual(["handoff_pending", "handoff_pending"]);
       await syncSocialHolds(daily.h.worker());
       expect(await states()).toEqual(["scheduled", "scheduled"]);
+    });
+
+    describe("released-post watch: risk", () => {
+      const risks = (now = new Date(), opts?: Parameters<typeof watchCandidates>[3]) =>
+        daily.h.run(async (tx) => {
+          const cs = await watchCandidates(tx, daily.project.owner, now, opts);
+          return Promise.all(cs.map((c) => postRisk(tx, daily.project.owner, c)));
+        });
+
+      it("a released post with a valid live index has no risk", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = true;
+        expect(await risks()).toEqual([[], []]);
+        expect(pubs).toHaveLength(2);
+      });
+
+      it("an invalid live index puts both released posts at risk with LIVE_RAG_EVAL_REQUIRED", async () => {
+        await released();
+        provider.liveIndex = false;
+        const all = await risks();
+        expect(all).toHaveLength(2);
+        for (const r of all) expect(r).toContain("LIVE_RAG_EVAL_REQUIRED");
+      });
+
+      it("a content invalidation before the slot is a risk carrying CONTENT_CHANGED", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = true;
+        await daily.h.run((tx) =>
+          invalidateContent(tx, daily.project.owner, pubs[0]!.contentId),
+        );
+        const found = await daily.h.run(async (tx) => {
+          const cs = await watchCandidates(tx, daily.project.owner, new Date());
+          return Promise.all(
+            cs.map(async (c) => ({
+              id: c.id,
+              risk: await postRisk(tx, daily.project.owner, c),
+            })),
+          );
+        });
+        const changed = found.find((f) => f.id === pubs[0]!.id)!;
+        expect(changed.risk).toContain("CONTENT_CHANGED");
+        expect(found.find((f) => f.id === pubs[1]!.id)!.risk).toEqual([]);
+      });
+
+      it("an approval that expires before the slot is a risk, and the slot-time claim refuses it the same way", async () => {
+        const { pubs, slot } = await released();
+        provider.liveIndex = true;
+        const { owner } = daily.project;
+        // Not released by a veto window: the package approval is what counts.
+        for (const p of pubs) expect(p.vetoDeadline ?? null).toBeNull();
+        // The owner's approvals end an hour before the slot.
+        await daily.h.run(async (tx) => {
+          const approvals = await list(tx, owner, "approvals");
+          expect(approvals.length).toBeGreaterThan(0);
+          for (const row of approvals)
+            await update(tx, owner, row, {
+              ...data(row),
+              expiresAt: new Date(slot.valueOf() - 3600000).toISOString(),
+            });
+        });
+        const found = await daily.h.run(async (tx) => {
+          const cs = await watchCandidates(tx, owner, new Date(slot.valueOf() - 2 * 3600000));
+          return Promise.all(
+            cs.map(async (c) => ({ id: c.id, risk: await postRisk(tx, owner, c) })),
+          );
+        });
+        expect(found).toHaveLength(2);
+        for (const f of found) expect(f.risk).toContain("APPROVAL_REQUIRED");
+        // The owner reads words, not the code.
+        expect(atRiskReason("APPROVAL_REQUIRED", "de")).toContain("Freigabe");
+        expect(atRiskReason("APPROVAL_REQUIRED", "en")).toContain("approval");
+        // At the slot the claim refuses with the code the watch predicted.
+        atMinutes(slot, 1);
+        const pubId = pubs[0]!.id;
+        const claim = await daily.h.run((tx) =>
+          claimMarketingPublication(tx, daily.h.worker(), pubId),
+        );
+        expect(claim.send).toBe(false);
+        const blocked = (await daily.publications()).find((p) => p.id === pubId)!;
+        expect(blocked.status).toBe("blocked_dependency");
+        expect(blocked.blockers).toContain("APPROVAL_REQUIRED");
+        expect([...blocked.blockers].sort()).toEqual(
+          found.find((f) => f.id === pubId)!.risk,
+        );
+      });
+
+      it("ignores test publications, past slots and slots beyond 48 hours", async () => {
+        const { pubs, slot } = await released();
+        const ids = async (now: Date, opts?: Parameters<typeof watchCandidates>[3]) =>
+          daily.h.run(async (tx) =>
+            (await watchCandidates(tx, daily.project.owner, now, opts)).map((c) => c.id),
+          );
+        const hour = 3600000;
+        // Both released posts are candidates well before the slot.
+        expect((await ids(new Date(slot.valueOf() - hour))).sort()).toEqual(
+          pubs.map((p) => p.id).sort(),
+        );
+        // Past slot: none.
+        expect(await ids(new Date(slot.valueOf() + MINUTE))).toEqual([]);
+        // More than 48 hours ahead: none, unless the horizon is lifted.
+        const far = new Date(slot.valueOf() - 49 * hour);
+        expect(await ids(far)).toEqual([]);
+        expect(await ids(far, { horizonMs: null })).toHaveLength(2);
+        // The cap applies and can be lifted.
+        expect(await ids(new Date(slot.valueOf() - hour), { cap: 1 })).toHaveLength(1);
+        // A test publication is never a candidate.
+        await daily.h.run(async (tx) => {
+          for (const row of await list(tx, daily.project.owner, "publications"))
+            await update(tx, daily.project.owner, row, { ...data(row), test: true });
+        });
+        expect(await ids(new Date(slot.valueOf() - hour))).toEqual([]);
+      });
+    });
+
+    describe("released-post watch: notices", () => {
+      beforeEach(() => {
+        vi.stubEnv("ORBIT_RELEASED_POST_WATCH", "true");
+        vi.stubEnv("ORBIT_NOTIFICATIONS", "true");
+      });
+      const notices = (kind: string) =>
+        userScoped(daily.project.owner, (tx) =>
+          tx.notification.findMany({ where: { kind } }),
+        );
+      const watchRows = () => daily.h.rows("publication_watch");
+      const warnings = () =>
+        daily.h.run((tx) =>
+          tx.auditEvent.findMany({ where: { action: "publication.at_risk" } }),
+        );
+
+      it("warns the owners once when both posts become at risk, with one notice for both", async () => {
+        await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        await runReleasedPostWatch(daily.h.worker());
+        const found = await notices("marketing_post_at_risk");
+        expect(found).toHaveLength(1);
+        expect(found[0]!.body.split("\n")).toHaveLength(2);
+        expect(found[0]!.body).toContain("knowledge index");
+        expect(await warnings()).toHaveLength(2);
+        expect(await watchRows()).toHaveLength(2);
+      });
+
+      it("sends an all-clear once the index is valid again, and only once", async () => {
+        await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        provider.liveIndex = true;
+        await runReleasedPostWatch(daily.h.worker());
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await notices("marketing_post_at_risk")).toHaveLength(1);
+        const cleared = await notices("marketing_post_at_risk_cleared");
+        expect(cleared).toHaveLength(1);
+        expect(cleared[0]!.body.split("\n")).toHaveLength(2);
+        // A later risk warns again.
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await notices("marketing_post_at_risk")).toHaveLength(2);
+      });
+
+      it("a new code on an already warned post warns again", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        await daily.h.run((tx) =>
+          invalidateContent(tx, daily.project.owner, pubs[0]!.contentId),
+        );
+        await runReleasedPostWatch(daily.h.worker());
+        const found = await notices("marketing_post_at_risk");
+        expect(found).toHaveLength(2);
+        // The second notice names the changed post alone.
+        expect(found.map((n) => n.body.split("\n").length).sort()).toEqual([1, 2]);
+        expect(await warnings()).toHaveLength(3);
+        const row = (await watchRows()).find((w) => w.publicationId === pubs[0]!.id)!;
+        expect(row.notifiedCodes).toContain("CONTENT_CHANGED");
+      });
+
+      it("one post whose check throws does not stop the other", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = false;
+        await daily.h.run(async (tx) => {
+          await tx.entity.deleteMany({ where: { id: pubs[0]!.contentId } });
+        });
+        await runReleasedPostWatch(daily.h.worker());
+        const rows = await watchRows();
+        expect(rows.map((w) => w.publicationId)).toEqual([pubs[1]!.id]);
+        expect(await notices("marketing_post_at_risk")).toHaveLength(1);
+      });
+
+      it("a database error while checking one post does not stop the other post's warning", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = false;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const real = policyModule.preflight;
+        const spy = vi
+          .spyOn(policyModule, "preflight")
+          .mockImplementationOnce(async (tx: any) => {
+            // A real database error: it aborts the transaction it runs in.
+            await tx.$queryRaw`SELECT 1/0`;
+            throw new Error("unreachable");
+          });
+        try {
+          await runReleasedPostWatch(daily.h.worker());
+        } finally {
+          spy.mockRestore();
+        }
+        expect(real).toBe(policyModule.preflight);
+        const rows = await watchRows();
+        expect(rows).toHaveLength(1);
+        expect(pubs.map((p) => p.id)).toContain(rows[0]!.publicationId);
+        expect(await notices("marketing_post_at_risk")).toHaveLength(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        const logged = String(warn.mock.calls[0]![0]);
+        expect(logged).toContain("released-post-watch");
+        expect(logged).toContain(pubs.map((p) => p.id).find((id) => id !== rows[0]!.publicationId)!);
+        warn.mockRestore();
+        // The next pass picks the skipped post up.
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await watchRows()).toHaveLength(2);
+      });
+
+      it("the notice ref is stored on the watch rows and the renderers go stale after the all-clear", async () => {
+        await released();
+        const notify = vi.spyOn(notificationsModule, "notify");
+        try {
+          provider.liveIndex = false;
+          await runReleasedPostWatch(daily.h.worker());
+          const riskRef = notify.mock.calls.find((c) => c[2] === "at_risk")![3] as string;
+          expect((await watchRows()).map((w) => w.lastNoticeRef)).toEqual([riskRef, riskRef]);
+          const render = (kind: string, ref: string) =>
+            daily.h.run((tx) =>
+              marketingNotifications.render(tx, daily.project.owner, kind, ref),
+            );
+          const message: any = await render("at_risk", riskRef);
+          expect(message.skip).toBeUndefined();
+          expect(message.text).toContain("gefährdet");
+          provider.liveIndex = true;
+          await runReleasedPostWatch(daily.h.worker());
+          const clearRef = notify.mock.calls.find((c) => c[2] === "at_risk_cleared")![3] as string;
+          expect(clearRef).not.toBe(riskRef);
+          expect(await render("at_risk", riskRef)).toEqual({ skip: "STALE" });
+          const cleared: any = await render("at_risk_cleared", clearRef);
+          expect(cleared.skip).toBeUndefined();
+          expect(await render("at_risk", "unknown:ref")).toEqual({ skip: "STALE" });
+        } finally {
+          notify.mockRestore();
+        }
+      });
+
+      it("a second identical risk episode gets its own notice ref", async () => {
+        await released();
+        const notify = vi.spyOn(notificationsModule, "notify");
+        try {
+          for (const live of [false, true, false]) {
+            provider.liveIndex = live;
+            await runReleasedPostWatch(daily.h.worker());
+          }
+          const refs = notify.mock.calls.filter((c) => c[2] === "at_risk").map((c) => c[3]);
+          expect(refs).toHaveLength(2);
+          expect(new Set(refs).size).toBe(2);
+        } finally {
+          notify.mockRestore();
+        }
+      });
+
+      it("does nothing with the flag off", async () => {
+        vi.stubEnv("ORBIT_RELEASED_POST_WATCH", "false");
+        await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await notices("marketing_post_at_risk")).toHaveLength(0);
+        expect(await watchRows()).toHaveLength(0);
+      });
+
+      it("never changes the publications it checks", async () => {
+        await released();
+        provider.liveIndex = false;
+        const versions = async () =>
+          (await daily.h.run((tx) =>
+            tx.entity.findMany({
+              where: { kind: "publications" },
+              select: { id: true, version: true },
+              orderBy: { id: "asc" },
+            }),
+          ));
+        const before = await versions();
+        await runReleasedPostWatch(daily.h.worker());
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await versions()).toEqual(before);
+      });
     });
   });
 

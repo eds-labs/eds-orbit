@@ -15,6 +15,7 @@ import { pmBudgetToday } from "./budget.ts";
 import { listFindings } from "./monitor.ts";
 import { loadProposal, proposalView, requestPlan } from "./planner.ts";
 import { listReports, loadReport, requestReport } from "./reporter.ts";
+import { readPmSettings } from "./settings.ts";
 import { getPmState } from "./state.ts";
 
 // The AI project manager's assistant tools (plan §2.9, WP2.6). Reads serve
@@ -59,6 +60,29 @@ export const workPmStatus = readOperation({
       lastReportAt: state.lastReportAt,
       findings: { critical: count("critical"), warning: count("warning"), info: count("info") },
       budget,
+    };
+  },
+});
+
+export const workPmCodingRepositories = readOperation({
+  ...shared,
+  name: "work_pm_coding_repositories",
+  description:
+    "The repositories an owner configured for coding work orders in this project (Work settings → AI project manager): key, label, GitHub owner/name, base branch and how a work order is handed over. Pass the key or owner/name to work_pm_propose_coding_run. No AI cost.",
+  input: z.object({}).strict(),
+  permission: WORK_READ,
+  async run(tx, scope) {
+    await requirePm(tx, scope);
+    const { settings } = await readPmSettings(tx, scope);
+    return {
+      items: settings.repositories.map((r) => ({
+        key: r.key,
+        label: r.label,
+        provider: r.provider,
+        fullName: r.fullName,
+        defaultBranch: r.defaultBranch,
+        dispatch: r.dispatch.kind,
+      })),
     };
   },
 });
@@ -219,6 +243,7 @@ export const workPmRequestReport = defineTool({
 export const pmTools = [
   workPmStatus,
   workPmFindings,
+  workPmCodingRepositories,
   workPmGetReport,
   workPmGetPlan,
   workPmRequestPlan,

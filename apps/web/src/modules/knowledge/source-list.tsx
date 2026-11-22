@@ -8,6 +8,7 @@ import { AppLink } from "@/platform/ui/app-link";
 import { cn } from "@/lib/utils";
 import { action, useMutation, when, type Entity } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Modal } from "@/components/ui/primitives";
+import { runAfterReleaseCheck } from "./release-impact";
 import type { SourceIndexStatus } from "./index-status";
 import { useIndexStatus } from "./index-status";
 import { sourceRows, type SourceRow } from "./source-rows";
@@ -190,18 +191,23 @@ function SourceRowView({
     setAlreadyRunning(false);
     const known = (e.data.site as { lastRunId?: string } | undefined)
       ?.lastRunId;
-    const run = await mutation.run(() =>
-      action<Entity>(project.id, "knowledge-site-refresh", {
-        sourceId: row.id,
-      }),
+    const run = await runAfterReleaseCheck(
+      mutation.run,
+      project.id,
+      locale,
+      () =>
+        action<Entity>(project.id, "knowledge-site-refresh", {
+          sourceId: row.id,
+        }),
     );
     // An active run comes back as it is; it is not a new start.
     if (run && run.id === known) setAlreadyRunning(true);
   };
-  const setPaused = (paused: boolean) =>
-    mutation.run(() =>
+  const setPaused = async (paused: boolean) => {
+    await runAfterReleaseCheck(mutation.run, project.id, locale, () =>
       action(project.id, "source-pause", { sourceId: row.id, paused }),
     );
+  };
   const setWeekly = (autoUpdate: boolean) =>
     mutation.run(() =>
       action(project.id, "knowledge-site-settings", {
@@ -211,7 +217,8 @@ function SourceRowView({
     );
   const remove = async () => {
     setRemoving(false);
-    await mutation.run(() =>
+    // After the existing confirmation: warn about released posts.
+    await runAfterReleaseCheck(mutation.run, project.id, locale, () =>
       action(project.id, "revoke-source", { sourceId: row.id }),
     );
   };
