@@ -40,6 +40,7 @@ import {
   ensureIngested,
   inboundRowForImport,
   mailServerTargets,
+  readMailboxInbox,
   readMailboxMessage,
   setSharedClient,
 } from "../src/platform/email/shared-client.ts";
@@ -58,6 +59,7 @@ vi.mock("../src/platform/email/shared-client.ts", async (importOriginal) => {
     setSharedClient: vi.fn(actual.setSharedClient),
     mailServerTargets: vi.fn(),
     ensureIngested: vi.fn(),
+    readMailboxInbox: vi.fn(),
     readMailboxMessage: vi.fn(),
     inboundRowForImport: vi.fn(),
     discardImportedRow: vi.fn(async () => undefined),
@@ -473,6 +475,7 @@ describe.skipIf(!enabled)("webmail module", () => {
     });
     vi.mocked(ensureIngested).mockReset();
     vi.mocked(ensureIngested).mockResolvedValue({ status: "ok" });
+    vi.mocked(readMailboxInbox).mockReset();
     vi.mocked(readMailboxMessage).mockReset();
     vi.mocked(inboundRowForImport).mockReset();
     vi.mocked(inboundRowForImport).mockImplementation(async () => ({
@@ -500,6 +503,89 @@ describe.skipIf(!enabled)("webmail module", () => {
       await authDb.workspace.delete({ where: { id: workspaceId } });
     for (const id of users) await authDb.user.delete({ where: { id } });
     await closeDatabase();
+  });
+
+  describe("inbox summary", () => {
+    const sample = {
+      unread: 3,
+      messages: [
+        {
+          uid: 12,
+          sender: "Synthetic Sender",
+          subject: "Synthetic subject",
+          receivedAt: "2026-11-23T09:00:00.000Z",
+          unread: true,
+        },
+      ],
+    };
+
+    it("uses a read grant and returns only private preview metadata", async () => {
+      const { mailboxId, connectionId } = await seedMailbox();
+      const path = `/mailboxes/${mailboxId}/inbox-summary`;
+      await grant(mailboxId, ids.editor, { canManage: true });
+      expect((await call("editor", "GET", path)).statusCode).toBe(404);
+      expect((await call("owner", "GET", path)).statusCode).toBe(404);
+      expect(
+        (await call("owner", "GET", path, undefined, otherProjectId))
+          .statusCode,
+      ).toBe(404);
+      expect(readMailboxInbox).not.toHaveBeenCalled();
+
+      await grant(mailboxId, ids.viewer, { canRead: true });
+      vi.mocked(readMailboxInbox).mockResolvedValue(sample);
+      const response = await call("viewer", "GET", path);
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toContain("no-store");
+      expect(response.json()).toEqual(sample);
+      expect(readMailboxInbox).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId,
+          projectId,
+          userId: ids.viewer,
+        }),
+        connectionId,
+      );
+    });
+
+    it("does not release IMAP results when the grant disappeared mid-read", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.viewer, { canRead: true });
+      vi.mocked(readMailboxInbox).mockImplementationOnce(async () => {
+        await scoped(workspaceId, projectId, (tx) =>
+          tx.webmailMailboxGrant.deleteMany({
+            where: { projectId, mailboxId, userId: ids.viewer },
+          }),
+        );
+        return sample;
+      });
+
+      const response = await call(
+        "viewer",
+        "GET",
+        `/mailboxes/${mailboxId}/inbox-summary`,
+      );
+      expect(response.statusCode).toBe(404);
+      expect(error(response)).toBe("WEBMAIL_MAILBOX_NOT_FOUND");
+      expect(response.body).not.toContain(sample.messages[0]!.subject);
+    });
+
+    it("distinguishes an unavailable server from an empty inbox", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.viewer, { canRead: true });
+      const path = `/mailboxes/${mailboxId}/inbox-summary`;
+      vi.mocked(readMailboxInbox).mockRejectedValueOnce(
+        new DomainError("WEBMAIL_INBOX_UNAVAILABLE", 503),
+      );
+      expect((await call("viewer", "GET", path)).statusCode).toBe(503);
+      vi.mocked(readMailboxInbox).mockResolvedValueOnce({
+        unread: 0,
+        messages: [],
+      });
+      expect((await call("viewer", "GET", path)).json()).toEqual({
+        unread: 0,
+        messages: [],
+      });
+    });
   });
 
   describe("access through grants", () => {
@@ -1315,20 +1401,16 @@ describe.skipIf(!enabled)("webmail module", () => {
       ).toEqual([ids.editor, ids.viewer].sort());
     });
 
-    it.each([
-      "list",
-      "show",
-      "compose",
-      "mark",
-      "copy",
-      "constructor",
-    ])("writes nothing for mail/%s", async (action) => {
-      const { mailboxId } = await seedMailbox();
-      await grant(mailboxId, ids.editor);
-      const { handle } = await seedSession(mailboxId, ids.editor);
-      expect((await authorize(handle, action)).statusCode).toBe(200);
-      expect(await attributions(mailboxId)).toHaveLength(0);
-    });
+    it.each(["list", "show", "compose", "mark", "copy", "constructor"])(
+      "writes nothing for mail/%s",
+      async (action) => {
+        const { mailboxId } = await seedMailbox();
+        await grant(mailboxId, ids.editor);
+        const { handle } = await seedSession(mailboxId, ids.editor);
+        expect((await authorize(handle, action)).statusCode).toBe(200);
+        expect(await attributions(mailboxId)).toHaveLength(0);
+      },
+    );
 
     it("writes nothing for another task or an action the session may not run", async () => {
       const { mailboxId } = await seedMailbox();

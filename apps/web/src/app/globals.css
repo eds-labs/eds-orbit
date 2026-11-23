@@ -547,7 +547,7 @@ pre {
   margin: 0 auto;
   padding: 30px 30px 22px;
 }
-/* A page that embeds a full client (webmail) takes the whole width. */
+/* The project home and embedded clients can use the whole content width. */
 .main:has([data-page-width="full"]) {
   max-width: none;
 }
@@ -5904,7 +5904,7 @@ svg.agent-graph {
 /* Project home (UI restructure §5.1): greeting and prompt, the status strip,
    the attention list, then the module sections. */
 .project-home {
-  max-width: 1180px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 22px;

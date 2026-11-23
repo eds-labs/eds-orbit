@@ -1,5 +1,9 @@
 import type { FastifyRequest } from "fastify";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { requireCapability } from "./access.ts";
+import { connectionVerified } from "../../platform/connections/connections.ts";
+import { readMailboxInbox } from "../../platform/email/shared-client.ts";
+import { DomainError } from "../../shared.ts";
 import { systemAdminFor } from "../../platform/administration/authz.ts";
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import { sessionFor } from "../../platform/tenancy/auth.ts";
@@ -80,6 +84,30 @@ export const webmailRoutes: RoutesContribution = ({ app, auth }) => {
     inWebmail(auth, req, WEBMAIL_USE, (tx, scope) =>
       listMemberMailboxes(tx, scope),
     ),
+  );
+  app.get(
+    `${BASE}/mailboxes/:mailboxId/inbox-summary`,
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (req) => {
+      const authorize = () =>
+        inWebmail(auth, req, WEBMAIL_USE, async (tx, scope, params) => {
+          const { mailbox, connection } = await requireCapability(
+            tx,
+            scope,
+            params.mailboxId!,
+            "read",
+          );
+          if (!mailbox.enabled || !connectionVerified(connection.status))
+            throw new DomainError("WEBMAIL_MAILBOX_UNAVAILABLE", 409);
+          return { scope, connectionId: mailbox.emailConnectionId };
+        });
+      const { scope, connectionId } = await authorize();
+      // IMAP runs outside the project transaction. A grant revoked during
+      // that read must not receive the resulting message metadata.
+      const summary = await readMailboxInbox(scope, connectionId);
+      await authorize();
+      return summary;
+    },
   );
   app.post(`${BASE}/mailboxes/:mailboxId/session`, async (req, reply) => {
     const { session } = await sessionFor(auth, req);

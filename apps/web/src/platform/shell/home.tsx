@@ -96,7 +96,7 @@ export function ProjectHome() {
     .filter(Boolean)
     .join(" · ");
   return (
-    <div className="project-home">
+    <div className="project-home" data-page-width="full">
       <div className="home-head">
         <div>
           <h1>{name ? `${hello}, ${name}` : hello}</h1>

@@ -375,6 +375,22 @@ export async function readMailboxMessage(
   return result;
 }
 
+/** Reads the INBOX envelope preview after the caller checks the mailbox grant. */
+export async function readMailboxInbox(scope: Scope, connectionId: string) {
+  const connection = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    verifiedEmailConnection(tx, scope, connectionId),
+  );
+  if (!connection) throw new DomainError("WEBMAIL_MAILBOX_UNAVAILABLE", 409);
+  const d = data(connection);
+  try {
+    const reader = mailFactories().mailbox(accountOf(d), decryptCredential(d));
+    if (!reader.inboxPreview) throw new MailSendError("IMAP_ERROR");
+    return await reader.inboxPreview();
+  } catch {
+    throw new DomainError("WEBMAIL_INBOX_UNAVAILABLE", 503);
+  }
+}
+
 /** A reader without folder access can still read its INBOX. */
 async function legacyFolderMessage(
   reader: MailboxReader,

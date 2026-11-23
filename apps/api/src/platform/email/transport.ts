@@ -5,6 +5,10 @@ import SMTPConnection, {
 } from "nodemailer/lib/smtp-connection";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { ImapFlow, type ImapFlowOptions } from "imapflow";
+import {
+  WEBMAIL_INBOX_PREVIEW_LIMIT,
+  type WebmailInboxSummary,
+} from "../../../../../packages/schemas/src/webmail-inbox.ts";
 
 // SMTP and IMAP against the project's own mailbox (WP4.7, Q-16). Both sides
 // sit behind small interfaces so tests replace them; the real ones use
@@ -67,6 +71,8 @@ export interface MailboxReader {
   verify(): Promise<void>;
   /** The INBOX's UIDVALIDITY, its highest UID and its unread UIDs. */
   scan(): Promise<{ uidValidity: string; top: number; unseen: number[] }>;
+  /** The unread count and the most recent envelope metadata, read-only. */
+  inboxPreview?(): Promise<WebmailInboxSummary>;
   /** These INBOX messages; larger than `maxBytes` are reported as skipped. */
   fetchUids(
     uids: number[],
@@ -314,6 +320,15 @@ export function folderPath(folder: string, delimiter: string) {
   return delimiter === "/" ? folder : folder.split("/").join(delimiter);
 }
 
+function previewText(value: string | undefined, limit: number) {
+  return (
+    value
+      ?.replace(/[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu, " ")
+      .trim()
+      .slice(0, limit) || null
+  );
+}
+
 const realFactories: MailFactories = {
   checkHost: async (host) => void (await assertPublicMailHost(host)),
   transport(account, password) {
@@ -365,6 +380,52 @@ const realFactories: MailFactories = {
             uidValidity: String(box.uidValidity),
             top: Math.max(0, Number(box.uidNext) - 1),
             unseen: (unseen || []).sort((a, b) => a - b),
+          };
+        }),
+      inboxPreview: () =>
+        session(async (c) => {
+          // STATUS does not select the mailbox. EXAMINE below keeps it read-only.
+          const status = await c.status("INBOX", { unseen: true });
+          const unseen = status ? status.unseen : undefined;
+          if (
+            typeof unseen !== "number" ||
+            !Number.isSafeInteger(unseen) ||
+            unseen < 0
+          )
+            throw new MailSendError("IMAP_ERROR");
+
+          const { exists } = await c.mailboxOpen("INBOX", { readOnly: true });
+          const messages: WebmailInboxSummary["messages"] = [];
+          if (exists > 0) {
+            const first = Math.max(1, exists - WEBMAIL_INBOX_PREVIEW_LIMIT + 1);
+            for await (const message of c.fetch(`${first}:${exists}`, {
+              uid: true,
+              envelope: true,
+              flags: true,
+              internalDate: true,
+            })) {
+              const sender = message.envelope?.from?.[0];
+              const received = message.internalDate
+                ? new Date(message.internalDate)
+                : null;
+              messages.push({
+                uid: message.uid,
+                sender:
+                  previewText(sender?.name, 160) ??
+                  previewText(sender?.address, 160),
+                subject: previewText(message.envelope?.subject, 240),
+                receivedAt:
+                  received && Number.isFinite(received.getTime())
+                    ? received.toISOString()
+                    : null,
+                unread: message.flags ? !message.flags.has("\\Seen") : false,
+              });
+            }
+          }
+          messages.sort((a, b) => b.uid - a.uid);
+          return {
+            unread: unseen,
+            messages: messages.slice(0, WEBMAIL_INBOX_PREVIEW_LIMIT),
           };
         }),
       fetchUids: (uids, maxBytes, options) =>

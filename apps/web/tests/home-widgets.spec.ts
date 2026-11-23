@@ -399,3 +399,113 @@ test("module widgets load data only when placed", async ({ page }) => {
   await expect(page.locator("li[data-widget]")).toHaveCount(0);
   await changeLayout(page, null);
 });
+
+test("uses the full desktop width and previews the selected readable inbox", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 2200, height: 1000 });
+  await openHome(page);
+  await setModule(page, "webmail", true);
+  await changeLayout(page, []);
+  const id = "webmail.inbox";
+  const inbox = card(page, id);
+  const mailboxes = [
+    ["00000000-0000-4000-8000-000000000011", "First inbox", true],
+    ["00000000-0000-4000-8000-000000000012", "Second inbox", true],
+    ["00000000-0000-4000-8000-000000000013", "Managed only", false],
+  ] as const;
+  await page.route("**/webmail/mailboxes", (route) =>
+    route.fulfill({
+      json: {
+        origin: "https://mail.example.invalid",
+        mailboxes: mailboxes.map(([mailboxId, displayName, read], index) => ({
+          id: mailboxId,
+          address: `mail-${index}@example.invalid`,
+          displayName,
+          status: "ok",
+          sync: "ok",
+          lastError: null,
+          sensitive: false,
+          capabilities: {
+            read,
+            send: false,
+            organize: false,
+            convert: false,
+            manage: !read,
+          },
+        })),
+      },
+    }),
+  );
+  let unread = 3;
+  const requests: string[] = [];
+  await page.route("**/inbox-summary", (route) => {
+    const mailboxId = new URL(route.request().url()).pathname
+      .split("/")
+      .at(-2)!;
+    requests.push(mailboxId);
+    return route.fulfill({
+      json:
+        mailboxId === mailboxes[0][0]
+          ? {
+              unread,
+              messages: [
+                {
+                  uid: 42,
+                  sender: "Synthetic sender",
+                  subject: "Synthetic subject",
+                  receivedAt: "2026-11-23T09:00:00.000Z",
+                  unread: unread > 0,
+                },
+              ],
+            }
+          : { unread: 0, messages: [] },
+    });
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Customize dashboard" }).click();
+  await page.getByRole("button", { name: "Add widget", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add widget: Email inbox", exact: true })
+    .click();
+  await expect(inbox.getByText("3 unread emails")).toBeVisible();
+  await expect(inbox.getByText("Synthetic sender")).toBeVisible();
+  await expect(inbox.getByText("Synthetic subject")).toBeVisible();
+  await expect(inbox.locator("time")).toHaveAttribute(
+    "datetime",
+    "2026-11-23T09:00:00.000Z",
+  );
+  expect(requests).toEqual([mailboxes[0][0]]);
+  const viewport = await page.locator(".project-home").boundingBox();
+  expect(viewport?.width).toBeGreaterThan(1800);
+  const columns = await page
+    .locator("li[data-widget]")
+    .first()
+    .evaluate(
+      (el) =>
+        getComputedStyle(el.parentElement!).gridTemplateColumns.split(" ")
+          .length,
+    );
+  expect(columns).toBe(4);
+
+  unread = 1;
+  await inbox.getByRole("button", { name: "Refresh" }).click();
+  await expect(inbox.getByText("1 unread email")).toBeVisible();
+  await expect(
+    inbox.getByRole("combobox", { name: "Mailbox" }).locator("option"),
+  ).toHaveCount(2);
+  await inbox
+    .getByRole("combobox", { name: "Mailbox" })
+    .selectOption(mailboxes[1][0]);
+  await expect(inbox.getByText("No unread emails")).toBeVisible();
+  await expect(inbox.getByText("The inbox is empty.")).toBeVisible();
+  await expect(inbox.getByText("Synthetic subject")).toHaveCount(0);
+  expect(requests.at(-1)).toBe(mailboxes[1][0]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await changeLayout(page, null);
+});

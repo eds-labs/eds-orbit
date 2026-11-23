@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { HOME_LAYOUT_PATH, homeLayoutSchema } from "./platform/home/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
+import { webmailInboxSummary } from "../../../packages/schemas/src/webmail-inbox.ts";
 import {
   draftCleanupInput,
   draftCleanupRestoreInput,
@@ -63,6 +64,11 @@ export function installOpenApiSchemas(app: FastifyInstance) {
         properties: { items: { type: "array", items: entity } },
       };
     if (route.url === HOME_LAYOUT_PATH) response = homeLayoutSchema;
+    const isInboxSummary = route.url.endsWith(
+      "/webmail/mailboxes/:mailboxId/inbox-summary",
+    );
+    if (isInboxSummary)
+      response = z.toJSONSchema(webmailInboxSummary, { target: "draft-7" });
     route.schema = {
       ...route.schema,
       operationId: method + "_" + route.url.replace(/[^a-z0-9]/gi, "_"),
@@ -77,6 +83,7 @@ export function installOpenApiSchemas(app: FastifyInstance) {
         404: error,
         409: error,
         429: error,
+        ...(isInboxSummary ? { 503: error } : {}),
       },
     };
     // Fastify response serializers keep generic entity data as validated JSON instead of exposing ORM internals.

@@ -18,6 +18,7 @@ describe("home widget registry", () => {
       expect.arrayContaining([
         "social.upcoming",
         "webmail.mailboxes",
+      "webmail.inbox",
         "ads.accounts",
         "cms.publishing",
       ]),

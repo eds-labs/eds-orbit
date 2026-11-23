@@ -4,7 +4,9 @@ The project home keeps the greeting, assistant prompt, project status and
 attention list above the dashboard. Use **Customize dashboard** to add or
 remove widgets, move them with their drag handles or the widget options, and
 choose **Compact** or **Wide**. The keyboard handle uses Space and the arrow
-keys. The same order applies on phones, where all widgets take one column.
+keys. The dashboard uses the available workspace width. Compact widgets
+fit in up to four columns on wide screens. The same order applies on phones,
+where all widgets take one column.
 
 **Save** applies the draft across devices for the signed-in member in the
 current project. **Cancel** discards the draft. **Restore default** followed
@@ -15,10 +17,22 @@ the draft visible and offers to load the current layout.
 The standard layout includes the available Support, Work, Issues,
 Marketing, Knowledge and Finance cards, followed by System status. The
 catalog adds scheduled Social posts, shared Webmail mailboxes, Ads accounts
-and the CMS publishing summary where their modules are available. Losing
-access to a module hides its widget and stops its requests when the API's
-module states reflect the change. If access returns, the saved placement
+and the CMS publishing summary where their modules are available. The separate
+**Email inbox** widget shows the unread count and the sender, subject and
+received time of up to five recent messages from the selected mailbox.
+It opens the first active mailbox the member can read and offers a picker
+when more are available. The widget refreshes while the dashboard tab is
+visible and also offers a Refresh button.
+
+Losing access to a module hides its widget and stops its requests when the
+API's module states reflect the change. If access returns, the saved placement
 returns with it.
+
+`GET /api/projects/:projectId/webmail/mailboxes/:mailboxId/inbox-summary`
+uses the existing Webmail module and per-mailbox read grants. It rechecks
+the grant before returning data. The IMAP read requests the unread count and
+bounded envelope metadata only. Responses are private and use no-store.
+A provider failure has its own unavailable state.
 
 ## Register a widget
 

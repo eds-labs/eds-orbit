@@ -1,0 +1,49 @@
+.mailbox {
+  display: grid;
+  gap: 4px;
+}
+.mailbox select {
+  min-width: 0;
+}
+.mailbox span,
+.singleMailbox,
+.messageHead time {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.singleMailbox,
+.messages li {
+  overflow-wrap: anywhere;
+}
+.status,
+.messageHead,
+.subject {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.status {
+  min-height: 36px;
+  align-items: center;
+}
+.messages {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 4px 0 0;
+  list-style: none;
+}
+.messages li + li {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.subject {
+  font-size: 14px;
+}
+.unread {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
