@@ -18,3 +18,11 @@ export const webmailInboxSummary = z.object({
 });
 
 export type WebmailInboxSummary = z.infer<typeof webmailInboxSummary>;
+
+export const webmailUnreadSummary = z.object({
+  total: z.int().nonnegative(),
+  complete: z.boolean(),
+  counts: z.record(z.string(), z.int().nonnegative().nullable()),
+});
+
+export type WebmailUnreadSummary = z.infer<typeof webmailUnreadSummary>;

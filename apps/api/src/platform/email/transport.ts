@@ -73,6 +73,7 @@ export interface MailboxReader {
   scan(): Promise<{ uidValidity: string; top: number; unseen: number[] }>;
   /** The unread count and the most recent envelope metadata, read-only. */
   inboxPreview?(): Promise<WebmailInboxSummary>;
+  inboxUnread?(): Promise<number>;
   /** These INBOX messages; larger than `maxBytes` are reported as skipped. */
   fetchUids(
     uids: number[],
@@ -329,6 +330,14 @@ function previewText(value: string | undefined, limit: number) {
   );
 }
 
+async function inboxUnread(client: ImapFlow): Promise<number> {
+  const status = await client.status("INBOX", { unseen: true });
+  const unseen = status ? status.unseen : undefined;
+  if (typeof unseen !== "number" || !Number.isSafeInteger(unseen) || unseen < 0)
+    throw new MailSendError("IMAP_ERROR");
+  return unseen;
+}
+
 const realFactories: MailFactories = {
   checkHost: async (host) => void (await assertPublicMailHost(host)),
   transport(account, password) {
@@ -382,17 +391,11 @@ const realFactories: MailFactories = {
             unseen: (unseen || []).sort((a, b) => a - b),
           };
         }),
+      inboxUnread: () => session(inboxUnread),
       inboxPreview: () =>
         session(async (c) => {
           // STATUS does not select the mailbox. EXAMINE below keeps it read-only.
-          const status = await c.status("INBOX", { unseen: true });
-          const unseen = status ? status.unseen : undefined;
-          if (
-            typeof unseen !== "number" ||
-            !Number.isSafeInteger(unseen) ||
-            unseen < 0
-          )
-            throw new MailSendError("IMAP_ERROR");
+          const unseen = await inboxUnread(c);
 
           const { exists } = await c.mailboxOpen("INBOX", { readOnly: true });
           const messages: WebmailInboxSummary["messages"] = [];

@@ -375,20 +375,38 @@ export async function readMailboxMessage(
   return result;
 }
 
-/** Reads the INBOX envelope preview after the caller checks the mailbox grant. */
-export async function readMailboxInbox(scope: Scope, connectionId: string) {
+/** Runs a read against a verified inbox after the caller checked access. */
+async function readVerifiedInbox<T>(
+  scope: Scope,
+  connectionId: string,
+  work: (reader: MailboxReader) => Promise<T> | undefined,
+) {
   const connection = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     verifiedEmailConnection(tx, scope, connectionId),
   );
   if (!connection) throw new DomainError("WEBMAIL_MAILBOX_UNAVAILABLE", 409);
   const d = data(connection);
   try {
-    const reader = mailFactories().mailbox(accountOf(d), decryptCredential(d));
-    if (!reader.inboxPreview) throw new MailSendError("IMAP_ERROR");
-    return await reader.inboxPreview();
+    const result = work(
+      mailFactories().mailbox(accountOf(d), decryptCredential(d)),
+    );
+    if (!result) throw new MailSendError("IMAP_ERROR");
+    return await result;
   } catch {
     throw new DomainError("WEBMAIL_INBOX_UNAVAILABLE", 503);
   }
+}
+
+export function readMailboxInbox(scope: Scope, connectionId: string) {
+  return readVerifiedInbox(scope, connectionId, (reader) =>
+    reader.inboxPreview?.(),
+  );
+}
+
+export function readMailboxUnread(scope: Scope, connectionId: string) {
+  return readVerifiedInbox(scope, connectionId, (reader) =>
+    reader.inboxUnread?.(),
+  );
 }
 
 /** A reader without folder access can still read its INBOX. */

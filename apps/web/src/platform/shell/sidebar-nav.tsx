@@ -6,6 +6,7 @@ import { labels, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { groupBadge } from "./nav-collapse";
 import type { NavGroup } from "./nav-groups";
+import type { NavigationCounts } from "./nav-counts";
 import type { Route } from "./routes";
 
 type Props = {
@@ -15,6 +16,7 @@ type Props = {
   hrefOf: (route: Route) => string;
   /** Counts per route key, such as open approvals. */
   badges?: Readonly<Record<string, number>>;
+  navCounts?: NavigationCounts;
   /** Route keys with a critical item: their badge shows the warning style. */
   urgent?: ReadonlySet<string>;
   locale: Locale;
@@ -66,6 +68,7 @@ export function SidebarNav({
   activeKey,
   hrefOf,
   badges = {},
+  navCounts,
   urgent = new Set(),
   locale,
   collapsed,
@@ -78,6 +81,21 @@ export function SidebarNav({
   const badge = (count: number, critical: boolean) => (
     <NavBadge count={count} urgent={critical} locale={locale} />
   );
+  const routeCount = (route: Route) => {
+    const def = route.nav?.count;
+    const value = navCounts?.[route.key];
+    if (!def || !value || (value.complete && value.total === 0)) return null;
+    return (
+      <span key={route.key} className="nav-badge">
+        <span aria-hidden="true">
+          {value.complete ? value.total : value.total ? `${value.total}+` : "?"}
+        </span>
+        <span className="sr-only">
+          {` ${def.label(value.total, value.complete, locale)}`}
+        </span>
+      </span>
+    );
+  };
   const link = (route: Route, className: string, withIcon: boolean) => {
     const Icon = route.nav!.icon;
     const active = route.key === activeKey;
@@ -91,6 +109,7 @@ export function SidebarNav({
         {withIcon && <Icon aria-hidden="true" />}
         <span className="nav-entry-label">{route.nav!.label[locale]}</span>
         {badge(badges[route.key] ?? 0, urgent.has(route.key))}
+        {withIcon && routeCount(route)}
       </Link>
     );
   };
@@ -134,6 +153,7 @@ export function SidebarNav({
                       (r) => urgent.has(r.key) && (badges[r.key] ?? 0) > 0,
                     ),
                   )}
+                {group.entries.map(routeCount)}
                 <ChevronDown className="nav-group-chevron" aria-hidden="true" />
               </button>
               {/* Kept while collapsed, so aria-controls names an element. */}

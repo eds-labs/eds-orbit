@@ -41,6 +41,7 @@ import {
   inboundRowForImport,
   mailServerTargets,
   readMailboxInbox,
+  readMailboxUnread,
   readMailboxMessage,
   setSharedClient,
 } from "../src/platform/email/shared-client.ts";
@@ -60,6 +61,7 @@ vi.mock("../src/platform/email/shared-client.ts", async (importOriginal) => {
     mailServerTargets: vi.fn(),
     ensureIngested: vi.fn(),
     readMailboxInbox: vi.fn(),
+    readMailboxUnread: vi.fn(),
     readMailboxMessage: vi.fn(),
     inboundRowForImport: vi.fn(),
     discardImportedRow: vi.fn(async () => undefined),
@@ -476,6 +478,7 @@ describe.skipIf(!enabled)("webmail module", () => {
     vi.mocked(ensureIngested).mockReset();
     vi.mocked(ensureIngested).mockResolvedValue({ status: "ok" });
     vi.mocked(readMailboxInbox).mockReset();
+    vi.mocked(readMailboxUnread).mockReset();
     vi.mocked(readMailboxMessage).mockReset();
     vi.mocked(inboundRowForImport).mockReset();
     vi.mocked(inboundRowForImport).mockImplementation(async () => ({
@@ -503,6 +506,101 @@ describe.skipIf(!enabled)("webmail module", () => {
       await authDb.workspace.delete({ where: { id: workspaceId } });
     for (const id of users) await authDb.user.delete({ where: { id } });
     await closeDatabase();
+  });
+
+  describe("unread counts", () => {
+    it("totals active readable inboxes and identifies unavailable counts", async () => {
+      const first = await seedMailbox();
+      const second = await seedMailbox();
+      const offline = await seedMailbox();
+      const manageOnly = await seedMailbox();
+      const disabled = await seedMailbox({ enabled: false });
+      const inaccessible = await seedMailbox({ owner: "finance" });
+      const grants = [
+        first,
+        second,
+        offline,
+        manageOnly,
+        disabled,
+        inaccessible,
+      ];
+      for (const { mailboxId } of grants)
+        await grant(
+          mailboxId,
+          ids.viewer,
+          mailboxId === manageOnly.mailboxId
+            ? { canManage: true }
+            : { canRead: true },
+        );
+      vi.mocked(readMailboxUnread).mockImplementation(
+        async (_scope, connectionId) => {
+          if (connectionId === first.connectionId) return 3;
+          if (connectionId === second.connectionId) return 4;
+          throw new DomainError("WEBMAIL_INBOX_UNAVAILABLE", 503);
+        },
+      );
+
+      const response = await call("viewer", "GET", "/unread");
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toContain("no-store");
+      expect(response.json()).toEqual({
+        total: 7,
+        complete: false,
+        counts: {
+          [first.mailboxId]: 3,
+          [second.mailboxId]: 4,
+          [offline.mailboxId]: null,
+        },
+      });
+      expect(
+        vi
+          .mocked(readMailboxUnread)
+          .mock.calls.map(([, id]) => id)
+          .sort(),
+      ).toEqual(
+        [first.connectionId, second.connectionId, offline.connectionId].sort(),
+      );
+      expect(readMailboxInbox).not.toHaveBeenCalled();
+      expect((await call("owner", "GET", "/unread")).json()).toEqual({
+        total: 0,
+        complete: true,
+        counts: {},
+      });
+      expect(
+        (await call("owner", "GET", "/unread", undefined, otherProjectId))
+          .statusCode,
+      ).toBe(404);
+
+      await scoped(workspaceId, projectId, (tx) =>
+        tx.webmailMailboxGrant.deleteMany({
+          where: {
+            userId: ids.viewer,
+            mailboxId: { in: grants.map(({ mailboxId }) => mailboxId) },
+          },
+        }),
+      );
+      expect((await call("viewer", "GET", "/unread")).json()).toEqual({
+        total: 0,
+        complete: true,
+        counts: {},
+      });
+    });
+
+    it("rechecks grants before releasing a count when a read was in flight", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.viewer, { canRead: true });
+      vi.mocked(readMailboxUnread).mockImplementationOnce(async () => {
+        await scoped(workspaceId, projectId, (tx) =>
+          tx.webmailMailboxGrant.deleteMany({
+            where: { projectId, mailboxId, userId: ids.viewer },
+          }),
+        );
+        return 20;
+      });
+      const response = await call("viewer", "GET", "/unread");
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ total: 0, complete: true, counts: {} });
+    });
   });
 
   describe("inbox summary", () => {

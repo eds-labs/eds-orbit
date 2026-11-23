@@ -42,6 +42,16 @@ beforeEach(() => {
 });
 
 describe("IMAP inbox preview", () => {
+  it("reads a count without opening the mailbox or fetching messages", async () => {
+    client.status.mockResolvedValue({ unseen: 5 });
+    const reader = mailFactories().mailbox(account, "synthetic");
+    await expect(reader.inboxUnread!()).resolves.toBe(5);
+    expect(client.status).toHaveBeenCalledWith("INBOX", { unseen: true });
+    expect(client.mailboxOpen).not.toHaveBeenCalled();
+    expect(client.fetch).not.toHaveBeenCalled();
+    expect(client.logout).toHaveBeenCalledOnce();
+  });
+
   it("uses STATUS and a bounded, read-only envelope fetch", async () => {
     client.status.mockResolvedValue({ unseen: 16 });
     client.mailboxOpen.mockResolvedValue({ exists: 50_000 });

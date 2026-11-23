@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, type ComponentType } from "react";
 import type { Route, RouteTable } from "./routes";
+import type { NavigationCounts } from "./nav-counts";
 import type {
   AgentSetup,
   AttentionRenderer,
@@ -47,6 +48,8 @@ export type AttentionState = {
 
 export type ShellContextValue = {
   features?: Record<string, boolean>;
+  navCounts?: NavigationCounts;
+  refreshNavCounts?: () => void;
   table: RouteTable;
   /** Platform pages with a navigation entry, in sidebar order. */
   platformNav: readonly Route[];

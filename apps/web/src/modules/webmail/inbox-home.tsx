@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { paths } from "@orbit/api-client";
 import { useWorkspace } from "@/components/workspace-context";
 import { Alert, Button, Skeleton } from "@/components/ui/primitives";
@@ -10,6 +10,7 @@ import { useShell } from "@/platform/shell/shell-context";
 import { WidgetResource } from "@/platform/ui/widget-resource";
 import { webmailPath, type MailboxesResponse } from "./api";
 import styles from "./inbox-home.module.css";
+import { mailboxUnreadLabel, unreadTotalLabel } from "./unread-labels";
 
 type InboxSummary =
   paths["/api/projects/{projectId}/webmail/mailboxes/{mailboxId}/inbox-summary"]["get"]["responses"][200]["content"]["application/json"];
@@ -49,6 +50,8 @@ const inboxWords = (locale: Locale) =>
 
 function InboxMessages({ mailboxId }: { mailboxId: string }) {
   const { project, locale } = useWorkspace();
+  const { refreshNavCounts } = useShell();
+  const manualRefresh = useRef(false);
   const t = inboxWords(locale);
   const { data, error, loading, refresh } = useResource<InboxSummary>(
     webmailPath(
@@ -62,6 +65,11 @@ function InboxMessages({ mailboxId }: { mailboxId: string }) {
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+  useEffect(() => {
+    if (!manualRefresh.current || (!data && !error)) return;
+    manualRefresh.current = false;
+    refreshNavCounts?.();
+  }, [data, error, refreshNavCounts]);
 
   return (
     <>
@@ -71,7 +79,15 @@ function InboxMessages({ mailboxId }: { mailboxId: string }) {
             {data.unread ? t.unread(data.unread) : t.noUnread}
           </strong>
         )}
-        <Button size="sm" variant="ghost" onClick={refresh} disabled={loading}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            manualRefresh.current = true;
+            refresh();
+          }}
+          disabled={loading}
+        >
           {t.refresh}
         </Button>
       </div>
@@ -110,6 +126,7 @@ function InboxMessages({ mailboxId }: { mailboxId: string }) {
 export function WebmailInboxHome() {
   const { project, locale } = useWorkspace();
   const shell = useShell();
+  const unread = shell.navCounts?.webmail;
   const t = inboxWords(locale);
   const [selectedId, setSelectedId] = useState<string>();
   return (
@@ -121,13 +138,21 @@ export function WebmailInboxHome() {
     >
       {({ mailboxes }) => {
         const readable = mailboxes.filter(
-          ({ capabilities, status }) => capabilities.read && status === "ok",
+          ({ capabilities, status }) =>
+            capabilities.read && status !== "disabled",
         );
         const selected =
-          readable.find(({ id }) => id === selectedId) ?? readable[0];
+          readable.find(({ id }) => id === selectedId) ??
+          readable.find(({ status }) => status === "ok") ??
+          readable[0];
         if (!selected) return <p>{t.noMailbox}</p>;
         return (
           <>
+            {unread && (
+              <strong>
+                {unreadTotalLabel(unread.total, unread.complete, locale)}
+              </strong>
+            )}
             {readable.length > 1 ? (
               <label className={styles.mailbox}>
                 <span>{t.mailbox}</span>
@@ -136,11 +161,20 @@ export function WebmailInboxHome() {
                   value={selected.id}
                   onChange={(event) => setSelectedId(event.target.value)}
                 >
-                  {readable.map(({ id, address, displayName }) => (
-                    <option key={id} value={id}>
-                      {displayName ? `${displayName} (${address})` : address}
-                    </option>
-                  ))}
+                  {readable.map(({ id, address, displayName }) => {
+                    const name = displayName
+                      ? `${displayName} (${address})`
+                      : address;
+                    const count = mailboxUnreadLabel(
+                      unread?.counts[id],
+                      locale,
+                    );
+                    return (
+                      <option key={id} value={id}>
+                        {count ? `${name} · ${count}` : name}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
             ) : (
@@ -148,7 +182,11 @@ export function WebmailInboxHome() {
                 {selected.displayName ?? selected.address}
               </p>
             )}
-            <InboxMessages key={selected.id} mailboxId={selected.id} />
+            {selected.status === "ok" ? (
+              <InboxMessages key={selected.id} mailboxId={selected.id} />
+            ) : (
+              <Alert kind="error">{t.unavailable}</Alert>
+            )}
           </>
         );
       }}

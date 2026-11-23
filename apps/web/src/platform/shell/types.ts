@@ -34,6 +34,11 @@ export type NavEntry = {
   feature?: string;
   label: Label;
   icon: LucideIcon;
+  /** Optional project-scoped counter kept visible on the sidebar group. */
+  count?: {
+    path(projectId: string): string;
+    label(total: number, complete: boolean, locale: Locale): string;
+  };
   /** Position in the sidebar, shared by the platform and all modules. */
   order: number;
   /** Shown in the mobile bottom bar, optionally with a shorter label. */

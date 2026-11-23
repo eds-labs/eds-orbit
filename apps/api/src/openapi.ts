@@ -2,7 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { HOME_LAYOUT_PATH, homeLayoutSchema } from "./platform/home/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
-import { webmailInboxSummary } from "../../../packages/schemas/src/webmail-inbox.ts";
+import {
+  webmailInboxSummary,
+  webmailUnreadSummary,
+} from "../../../packages/schemas/src/webmail-inbox.ts";
 import {
   draftCleanupInput,
   draftCleanupRestoreInput,
@@ -69,6 +72,8 @@ export function installOpenApiSchemas(app: FastifyInstance) {
     );
     if (isInboxSummary)
       response = z.toJSONSchema(webmailInboxSummary, { target: "draft-7" });
+    if (route.url.endsWith("/webmail/unread"))
+      response = z.toJSONSchema(webmailUnreadSummary, { target: "draft-7" });
     route.schema = {
       ...route.schema,
       operationId: method + "_" + route.url.replace(/[^a-z0-9]/gi, "_"),

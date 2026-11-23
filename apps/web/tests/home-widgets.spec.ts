@@ -438,6 +438,16 @@ test("uses the full desktop width and previews the selected readable inbox", asy
     }),
   );
   let unread = 3;
+  let partial = false;
+  await page.route("**/webmail/unread", (route) =>
+    route.fulfill({
+      json: {
+        total: unread + (partial ? 0 : 4),
+        complete: !partial,
+        counts: { [mailboxes[0][0]]: unread, [mailboxes[1][0]]: partial ? null : 4 },
+      },
+    }),
+  );
   const requests: string[] = [];
   await page.route("**/inbox-summary", (route) => {
     const mailboxId = new URL(route.request().url()).pathname
@@ -463,12 +473,23 @@ test("uses the full desktop width and previews the selected readable inbox", asy
     });
   });
   await page.reload();
+  const webmailGroup = page.getByRole("button", { name: /^Webmail .*unread/ });
+  await expect(webmailGroup).toHaveAccessibleName("Webmail 7 unread emails in total");
+  await webmailGroup.click();
+  await expect(webmailGroup).toHaveAttribute("aria-expanded", "false");
+  await expect(webmailGroup.locator(".nav-badge")).toBeVisible();
+  expect(requests).toHaveLength(0);
   await page.getByRole("button", { name: "Customize dashboard" }).click();
   await page.getByRole("button", { name: "Add widget", exact: true }).click();
   await page
     .getByRole("button", { name: "Add widget: Email inbox", exact: true })
     .click();
-  await expect(inbox.getByText("3 unread emails")).toBeVisible();
+  await expect(inbox.getByText("3 unread emails", { exact: true })).toBeVisible();
+  await expect(inbox.getByText("7 unread emails in total", { exact: true })).toBeVisible();
+  await expect(inbox.getByRole("combobox", { name: "Mailbox" }).locator("option")).toHaveText([
+    "First inbox (mail-0@example.invalid) · 3 unread",
+    "Second inbox (mail-1@example.invalid) · 4 unread",
+  ]);
   await expect(inbox.getByText("Synthetic sender")).toBeVisible();
   await expect(inbox.getByText("Synthetic subject")).toBeVisible();
   await expect(inbox.locator("time")).toHaveAttribute(
@@ -489,8 +510,12 @@ test("uses the full desktop width and previews the selected readable inbox", asy
   expect(columns).toBe(4);
 
   unread = 1;
+  partial = true;
   await inbox.getByRole("button", { name: "Refresh" }).click();
-  await expect(inbox.getByText("1 unread email")).toBeVisible();
+  await expect(inbox.getByText("1 unread email", { exact: true })).toBeVisible();
+  await expect(inbox.getByText("At least 1 unread email in total")).toBeVisible();
+  await expect(webmailGroup).toHaveAccessibleName("Webmail At least 1 unread email in total");
+  await expect(webmailGroup.locator(".nav-badge")).toContainText("1+");
   await expect(
     inbox.getByRole("combobox", { name: "Mailbox" }).locator("option"),
   ).toHaveCount(2);
@@ -508,4 +533,21 @@ test("uses the full desktop width and previews the selected readable inbox", asy
   ).toBeLessThanOrEqual(390);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await changeLayout(page, null);
+
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  await expect(webmailGroup.locator(".nav-badge")).toContainText("1+");
+  await webmailGroup.click();
+  await page.route("**/webmail/mailboxes/*/session", (route) =>
+    route.fulfill({
+      status: 503,
+      json: { error: { code: "WEBMAIL_INBOX_UNAVAILABLE" } },
+    }),
+  );
+  await page.getByRole("link", { name: "Mailboxes", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Mailbox" }).locator("option")).toHaveText([
+    "First inbox (mail-0@example.invalid) · 1 unread",
+    "Second inbox (mail-1@example.invalid) · Unread: unknown",
+    "Managed only (mail-2@example.invalid)",
+  ]);
+  await expect(page.locator("main").getByText("At least 1 unread email in total")).toBeVisible();
 });

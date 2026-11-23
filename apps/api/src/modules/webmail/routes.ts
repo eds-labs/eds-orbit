@@ -24,11 +24,13 @@ import {
   listGrants,
   listMemberMailboxes,
   openMailbox,
+  readableInboxTargets,
   setGrant,
   updateMailbox,
   webmailSettings,
 } from "./mailboxes.ts";
 import { WEBMAIL_SETTINGS, WEBMAIL_USE } from "./permissions.ts";
+import { aggregateUnread, rememberUnread } from "./unread.ts";
 import { openSession, revokeMemberSessions } from "./sessions.ts";
 
 const BRIDGE_HOST = "webmail-bridge";
@@ -86,6 +88,17 @@ export const webmailRoutes: RoutesContribution = ({ app, auth }) => {
     ),
   );
   app.get(
+    `${BASE}/unread`,
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    (req) =>
+      aggregateUnread(() =>
+        inWebmail(auth, req, WEBMAIL_USE, async (tx, scope) => ({
+          scope,
+          mailboxes: await readableInboxTargets(tx, scope),
+        })),
+      ),
+  );
+  app.get(
     `${BASE}/mailboxes/:mailboxId/inbox-summary`,
     { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
     async (req) => {
@@ -106,6 +119,7 @@ export const webmailRoutes: RoutesContribution = ({ app, auth }) => {
       // that read must not receive the resulting message metadata.
       const summary = await readMailboxInbox(scope, connectionId);
       await authorize();
+      rememberUnread(scope, connectionId, summary.unread);
       return summary;
     },
   );

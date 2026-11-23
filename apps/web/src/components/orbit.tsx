@@ -84,6 +84,7 @@ import {
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
+import { useNavigationCounts } from "@/platform/shell/nav-counts";
 import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
 import { redirectScreen } from "@/platform/shell/redirect-screen";
 import { OldAddressScreen } from "@/platform/shell/former-address";
@@ -669,10 +670,27 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     googleDrive,
     centerMap,
   ]);
-  // Apart, so a loaded attention keeps the functions above unchanged.
+  const countRoutes = useMemo(
+    () =>
+      base
+        ? [
+            ...base.platformNav,
+            ...base.modules
+              .filter((module) => module.enabled)
+              .flatMap((module) => module.nav),
+          ].filter((route) => route.nav?.count)
+        : [],
+    [base],
+  );
+  const { navCounts, refreshNavCounts } = useNavigationCounts(
+    identity.data?.user.id,
+    project?.id,
+    countRoutes,
+  );
   const shell = useMemo(
-    (): ShellContextValue | null => base && { ...base, attention },
-    [base, attention],
+    (): ShellContextValue | null =>
+      base && { ...base, attention, navCounts, refreshNavCounts },
+    [base, attention, navCounts, refreshNavCounts],
   );
   // The label of a sidebar group, for the breadcrumb and the document title.
   const groupLabel = (group: string) =>
@@ -1234,6 +1252,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             activeKey={activeNavKey(route)}
             hrefOf={(r) => navEntryHref(r, project.id)}
             badges={badges.counts}
+            navCounts={navCounts}
             urgent={badges.urgent}
             locale={locale}
             collapsed={collapsed}

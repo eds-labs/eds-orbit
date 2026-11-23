@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Inbox } from "lucide-react";
 import { useResource } from "@/lib/api";
+import type { Locale } from "@/lib/i18n";
+import type { NavigationCount } from "@/platform/shell/nav-counts";
 import {
   Alert,
   Badge,
@@ -25,6 +27,7 @@ import { ConvertDialog } from "./convert-dialog";
 import { WebmailEmbed } from "./embed";
 import { GrantEditor } from "./grants";
 import { webmailText, type WebmailText } from "./labels";
+import { mailboxUnreadLabel, unreadTotalLabel } from "./unread-labels";
 import styles from "./webmail.module.css";
 
 // The webmail page (ADR 0026): the mailboxes the member was granted, and the
@@ -93,8 +96,12 @@ export function MailboxPicker({
   mailboxes,
   selected,
   onSelect,
+  unread,
+  locale = "en",
 }: {
   t: WebmailText;
+  unread?: NavigationCount;
+  locale?: Locale;
   mailboxes: readonly WebmailMailbox[];
   selected: WebmailMailbox | null;
   onSelect: (id: string) => void;
@@ -116,11 +123,18 @@ export function MailboxPicker({
                 {t.pickerPlaceholder}
               </option>
             )}
-            {mailboxes.map((mailbox) => (
-              <option key={mailbox.id} value={mailbox.id}>
-                {mailboxOptionLabel(mailbox, t)}
-              </option>
-            ))}
+            {mailboxes.map((mailbox) => {
+              const label = mailboxOptionLabel(mailbox, t);
+              const count = mailboxUnreadLabel(
+                unread?.counts[mailbox.id],
+                locale,
+              );
+              return (
+                <option key={mailbox.id} value={mailbox.id}>
+                  {count ? `${label} · ${count}` : label}
+                </option>
+              );
+            })}
           </select>
         </label>
       ) : (
@@ -132,6 +146,11 @@ export function MailboxPicker({
               : selected.address}
           </strong>
         </div>
+      )}
+      {unread && Object.keys(unread.counts).length > 0 && (
+        <strong>
+          {unreadTotalLabel(unread.total, unread.complete, locale)}
+        </strong>
       )}
       {/* div, not p: the page head styles every paragraph as its intro. */}
       {selected && status && (
@@ -185,12 +204,14 @@ export function WebmailOverview() {
   } | null>(null);
 
   const refreshMailboxes = resource.refresh;
+  const refreshNavCounts = shell.refreshNavCounts;
   const onWithdrawn = useCallback(
     (lost: { id: string; address: string }) => {
       setWithdrawn(lost);
       refreshMailboxes();
+      refreshNavCounts?.();
     },
-    [refreshMailboxes],
+    [refreshMailboxes, refreshNavCounts],
   );
   // Choosing a mailbox is the member's own step, so it may open one again.
   useEffect(() => setWithdrawn(null), [requested]);
@@ -273,6 +294,8 @@ export function WebmailOverview() {
           t={t}
           mailboxes={data.mailboxes}
           selected={mailbox}
+          unread={shell.navCounts?.webmail}
+          locale={locale}
           onSelect={(id) =>
             router.push(`${base}?mailbox=${encodeURIComponent(id)}`, {
               scroll: false,

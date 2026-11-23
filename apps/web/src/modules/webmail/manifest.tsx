@@ -4,6 +4,8 @@ import { Inbox } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { WebmailOverview } from "./overview";
 import { webmailSettings } from "./settings";
+import { webmailPath } from "./api";
+import { unreadTotalLabel } from "./unread-labels";
 
 /**
  * Webmail in the web shell (ADR 0026). Opt-in: shown only where the server
@@ -26,8 +28,8 @@ export const webmailWeb: WebModule = {
       id: "webmail.inbox",
       title: { en: "Email inbox", de: "E-Mail-Posteingang" },
       description: {
-        en: "Unread count and latest messages in a shared inbox.",
-        de: "Ungelesene und die neuesten E-Mails eines freigegebenen Postfachs.",
+        en: "Unread counts across your mailboxes and the latest messages in the selected inbox.",
+        de: "Ungelesene E-Mails in deinen Postfächern und die neuesten Nachrichten im ausgewählten Posteingang.",
       },
       defaultSize: "compact",
       component: WebmailInboxHome,
@@ -52,6 +54,10 @@ export const webmailWeb: WebModule = {
         label: { en: "Mailboxes", de: "Postfächer" },
         icon: Inbox,
         order: 0,
+        count: {
+          path: (id) => webmailPath(id, "/unread"),
+          label: unreadTotalLabel,
+        },
       },
     },
   ],

@@ -72,22 +72,42 @@ const flagsOf = (grant: GrantFlags): GrantFlags => ({
   canManage: grant.canManage,
 });
 
-/** The mailboxes the member can read or manage, with their current state. */
-export async function listMemberMailboxes(tx: DbTx, scope: Scope) {
+async function memberMailboxes(tx: DbTx, scope: Scope, readOnly: boolean) {
   const grants = await tx.webmailMailboxGrant.findMany({
     where: {
       projectId: scope.projectId,
       userId: scope.userId,
-      OR: [{ canRead: true }, { canManage: true }],
+      ...(readOnly
+        ? { canRead: true }
+        : { OR: [{ canRead: true }, { canManage: true }] }),
     },
   });
+  const allowed = [];
+  for (const grant of grants) {
+    const found = await loadMailbox(tx, scope, grant.mailboxId);
+    if (found && (await memberAdmitted(scope, found.connection)))
+      allowed.push({ ...found, grant });
+  }
+  return allowed;
+}
+
+export async function readableInboxTargets(tx: DbTx, scope: Scope) {
+  return (await memberMailboxes(tx, scope, true))
+    .filter(({ mailbox }) => mailbox.enabled)
+    .map(({ mailbox, connection }) => ({
+      mailboxId: mailbox.id,
+      connectionId: mailbox.emailConnectionId,
+      available: connectionVerified(connection.status),
+    }));
+}
+
+/** The mailboxes the member can read or manage, with their current state. */
+export async function listMemberMailboxes(tx: DbTx, scope: Scope) {
+  const allowed = await memberMailboxes(tx, scope, false);
   const states = await list(tx, scope, INBOUND_STATE_KIND);
   const operating = await operatingState(tx, scope);
   const mailboxes = [];
-  for (const grant of grants) {
-    const found = await loadMailbox(tx, scope, grant.mailboxId);
-    if (!found || !(await memberAdmitted(scope, found.connection))) continue;
-    const { mailbox, connection } = found;
+  for (const { mailbox, connection, grant } of allowed) {
     const state = states.find(
       (row) => data(row).connectionId === mailbox.emailConnectionId,
     );

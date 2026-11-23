@@ -18,11 +18,12 @@ The standard layout includes the available Support, Work, Issues,
 Marketing, Knowledge and Finance cards, followed by System status. The
 catalog adds scheduled Social posts, shared Webmail mailboxes, Ads accounts
 and the CMS publishing summary where their modules are available. The separate
-**Email inbox** widget shows the unread count and the sender, subject and
-received time of up to five recent messages from the selected mailbox.
-It opens the first active mailbox the member can read and offers a picker
-when more are available. The widget refreshes while the dashboard tab is
-visible and also offers a Refresh button.
+**Email inbox** widget shows the total unread count across active mailboxes
+the member can read. The Webmail sidebar group shows the same total, even
+when collapsed. The widget and the Webmail page show counts in their
+mailbox pickers. The widget lists the sender, subject and received time of
+up to five recent messages from the selected mailbox. It refreshes while
+the dashboard tab is visible and offers a Refresh button.
 
 Losing access to a module hides its widget and stops its requests when the
 API's module states reflect the change. If access returns, the saved placement
@@ -33,6 +34,11 @@ uses the existing Webmail module and per-mailbox read grants. It rechecks
 the grant before returning data. The IMAP read requests the unread count and
 bounded envelope metadata only. Responses are private and use no-store.
 A provider failure has its own unavailable state.
+
+`GET /api/projects/:projectId/webmail/unread` returns the total and per-mailbox
+counts. It uses IMAP STATUS only and rechecks access before returning data.
+An unavailable count is null and marks the total as incomplete. The sidebar
+shows a plus for a known minimum or a question mark when the total is unknown.
 
 ## Register a widget
 
