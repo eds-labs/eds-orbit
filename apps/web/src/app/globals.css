@@ -4058,6 +4058,17 @@ body:has(dialog[open]) {
 .capability-readiness .data-row {
   padding-inline: 21px;
 }
+.model-price-row .page-actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 640px) {
+  .model-price-row {
+    flex-wrap: wrap;
+  }
+  .model-price-row > div:first-child {
+    flex-basis: 100%;
+  }
+}
 /* The headings of the AI budget levels and usage lists, at the row inset. */
 .capability-readiness > .field-heading,
 .ai-usage-list > .field-heading {

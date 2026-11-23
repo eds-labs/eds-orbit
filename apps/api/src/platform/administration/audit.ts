@@ -25,6 +25,7 @@ export type SystemAuditInput = {
   targetId: string;
   workspaceId?: string | null;
   projectId?: string | null;
+  createdAt?: Date;
   metadata?: Record<string, string | number | boolean | null | string[]>;
 };
 
@@ -41,6 +42,7 @@ export async function systemAudit(
       workspaceId: input.workspaceId ?? null,
       projectId: input.projectId ?? null,
       metadata: input.metadata ?? {},
+      createdAt: input.createdAt,
     },
   });
 }

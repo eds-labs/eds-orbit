@@ -2,6 +2,7 @@ import {
   aiCatalogEnabled,
   aiDefaultsEnabled,
   projectCatalog,
+  withPriceReviews,
   withCatalog,
 } from "./catalog.ts";
 import {
@@ -440,7 +441,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
   const storedFields = storedAiFields(row);
   // The central price catalog the project draws on (phase A), when on.
   const catalog = aiCatalogEnabled()
-    ? (await projectCatalog(tx, scope)).map((m) => ({
+    ? (await withPriceReviews(await projectCatalog(tx, scope), scope.workspaceId)).map((m) => ({
         id: m.id,
         provider: m.provider,
         purpose: m.purpose,

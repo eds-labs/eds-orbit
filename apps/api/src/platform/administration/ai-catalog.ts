@@ -2,7 +2,12 @@ import { z } from "zod";
 import { authDb, type Prisma } from "../../../../../packages/db/src/index.ts";
 import { priceCatalog, priceUnits } from "../../../../../packages/ai/src/index.ts";
 import { DomainError } from "../shared.ts";
-import { mergeCatalog } from "../ai/catalog.ts";
+import {
+  mergeCatalog,
+  modelPriceConfirmedAction,
+  priceReviewKey,
+  withPriceReviews,
+} from "../ai/catalog.ts";
 import { systemAudit } from "./audit.ts";
 
 // "Modelle & Preise" of the system (administrators) and of an organization
@@ -16,6 +21,13 @@ const where = (t: Target) =>
   t.scope === "system"
     ? { scope: "system", workspaceId: null }
     : { scope: "workspace", workspaceId: t.workspaceId };
+
+const catalogScope = (target: Target) =>
+  target.scope === "system"
+    ? where(target)
+    : { OR: [where({ scope: "system" }), where(target)] };
+
+const priceConfirmation = z.strictObject({ confirmPrice: z.string().regex(/^[a-f0-9]{64}$/) });
 
 const micros = z.number().int().min(0).max(1_000_000_000);
 export const modelPriceInput = z
@@ -37,21 +49,42 @@ export const modelPriceInput = z
   })
   .strict();
 
+const modelPriceRequest = z.union([modelPriceInput, priceConfirmation]);
+
 /** The catalog as the target sees it: the system's view, or the organization's. */
 export async function listModelPrices(target: Target) {
-  const rows = await authDb.aiModelPrice.findMany({
-    where:
-      target.scope === "system"
-        ? { scope: "system" }
-        : { OR: [{ scope: "system" }, { scope: "workspace", workspaceId: target.workspaceId }] },
-  });
-  const own = new Set(
-    rows.filter((r) => r.scope === target.scope).map((r) => r.modelId),
-  );
+  const rows = await authDb.aiModelPrice.findMany({ where: catalogScope(target) });
+  const own = new Set(rows.filter((row) => row.scope === target.scope).map((row) => row.modelId));
+  const models = await withPriceReviews(mergeCatalog(rows), where(target).workspaceId);
   return {
     scope: target.scope,
-    models: mergeCatalog(rows).map((m) => ({ ...m, overridden: own.has(m.id) })),
+    models: models.map((model) => ({ ...model, overridden: own.has(model.id) })),
   };
+}
+
+/** Record the reviewed effective price without creating or editing an override. */
+async function confirmModelPrice(actorId: string, target: Target, modelId: string, reviewKey: string) {
+  return authDb.$transaction(async (tx) => {
+    const rows = await tx.aiModelPrice.findMany({
+      where: { ...catalogScope(target), modelId },
+    });
+    const model = mergeCatalog(rows).find((entry) => entry.id === modelId)!;
+    if (priceReviewKey(model) !== reviewKey) throw new DomainError("MODEL_PRICE_CHANGED", 409);
+    const confirmedAt = new Date();
+    await systemAudit(
+      {
+        actorId,
+        action: modelPriceConfirmedAction,
+        targetType: "ai_model_price",
+        targetId: modelId,
+        workspaceId: where(target).workspaceId,
+        metadata: { scope: target.scope, reviewKey },
+        createdAt: confirmedAt,
+      },
+      tx,
+    );
+    return { modelId, verifiedAt: confirmedAt.toISOString() };
+  });
 }
 
 /** Saves the target's override of one catalog model and audits it. */
@@ -62,8 +95,10 @@ export async function setModelPrice(
   raw: unknown,
 ) {
   const entry = priceCatalog[modelId];
-  if (!entry) throw new DomainError("MODEL_NOT_IN_CATALOG", 404);
-  const input = modelPriceInput.parse(raw);
+  if (!Object.hasOwn(priceCatalog, modelId) || !entry)
+    throw new DomainError("MODEL_NOT_IN_CATALOG", 404);
+  const input = modelPriceRequest.parse(raw);
+  if ("confirmPrice" in input) return confirmModelPrice(actorId, target, modelId, input.confirmPrice);
   const priceGiven =
     input.inputMicrosPerMillion !== undefined ||
     input.outputMicrosPerMillion !== undefined ||

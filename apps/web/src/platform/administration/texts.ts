@@ -77,6 +77,10 @@ const errors: Record<string, { en: string; de: string }> = {
     en: "This profile changed since you opened it (for example its standard models). Reload the page and apply your change again.",
     de: "Dieses Profil hat sich geändert, seit du es geöffnet hast (zum Beispiel seine Standard-Modelle). Lade die Seite neu und übernimm deine Änderung noch einmal.",
   },
+  MODEL_PRICE_CHANGED: {
+    en: "The price changed since you opened this page. Reload it and review the current price.",
+    de: "Der Preis hat sich seit dem Öffnen geändert. Lade die Seite neu und prüfe den aktuellen Preis.",
+  },
   PASSWORD_TOO_SHORT: {
     en: "Use at least 12 characters.",
     de: "Verwende mindestens 12 Zeichen.",

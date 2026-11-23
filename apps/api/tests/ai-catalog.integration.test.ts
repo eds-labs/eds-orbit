@@ -227,6 +227,103 @@ describe.skipIf(!enabled)("AI price catalog", () => {
     await resetModelPrice(scope.userId, org(), "whisper-1");
   });
 
+  it("confirms the shown price without writing an override and rejects a stale review", async () => {
+    const system = { scope: "system" as const };
+    const modelId = "gpt-4o-mini-transcribe";
+    const url = `/api/admin/ai/models/${modelId}`;
+    const read = async () => (await listModelPrices(system)).models.find((m) => m.id === modelId)!;
+    const before = await read();
+    const payload = { confirmPrice: before.reviewKey };
+
+    const submit = (body: typeof payload & { unitPriceMicros?: number }, session = cookie) =>
+      app.inject({ method: "PUT", url, headers: { origin, cookie: session }, payload: body });
+    expect((await submit(payload, "")).statusCode).toBe(401);
+    expect((await submit(payload)).statusCode).toBe(404);
+    await authDb.user.update({ where: { id: scope.userId }, data: { role: "admin" } });
+    try {
+      expect((await submit({ ...payload, unitPriceMicros: 5000 })).statusCode).toBe(400);
+      const response = await submit(payload);
+      expect(response.statusCode).toBe(200);
+      const { verifiedAt } = response.json();
+      expect(Date.parse(verifiedAt)).toBeGreaterThan(Date.parse(before.verifiedAt));
+      expect(await read()).toMatchObject({
+        reviewKey: before.reviewKey,
+        verifiedAt,
+        unitPrice: before.unitPrice,
+        priceSource: "orbit",
+        needsReview: false,
+        overridden: false,
+      });
+      expect(await authDb.aiModelPrice.findFirst({ where: { modelId, scope: "system" } })).toBeNull();
+      expect((await listModelPrices(org())).models.find((m) => m.id === modelId)?.verifiedAt)
+        .toBe(verifiedAt);
+      process.env.ORBIT_AI_CATALOG = "true";
+      const projectView = await run((tx) => projectAiConfigurationView(tx, scope));
+      expect(projectView.catalog?.find((m) => m.id === modelId)).toMatchObject({
+        verifiedAt,
+        needsReview: false,
+        unitPrice: before.unitPrice,
+      });
+      expect(await authDb.systemAuditEvent.findFirst({
+        where: { actorId: scope.userId, action: "ai_model_price.confirmed", targetId: modelId },
+      })).toMatchObject({ workspaceId: null, metadata: { reviewKey: before.reviewKey } });
+
+      await setModelPrice(scope.userId, system, modelId, { unitPriceMicros: 5000, active: false });
+      const changed = await read();
+      expect(changed.reviewKey).not.toBe(before.reviewKey);
+      expect((await submit(payload)).statusCode).toBe(409);
+
+      const override = await authDb.aiModelPrice.findFirstOrThrow({ where: { modelId, scope: "system" } });
+      const confirmOverride = await submit({ confirmPrice: changed.reviewKey });
+      expect(confirmOverride.statusCode).toBe(200);
+      expect(await read()).toMatchObject({
+        verifiedAt: confirmOverride.json().verifiedAt,
+        unitPrice: { unit: "audio_minute", micros: 5000 },
+        priceSource: "system",
+        active: false,
+        overridden: true,
+      });
+      expect(await authDb.aiModelPrice.findUnique({ where: { id: override.id } })).toEqual(override);
+      await resetModelPrice(scope.userId, system, modelId);
+      expect(await read()).toMatchObject({
+        verifiedAt,
+        unitPrice: before.unitPrice,
+        priceSource: "orbit",
+        overridden: false,
+      });
+    } finally {
+      await resetModelPrice(scope.userId, system, modelId);
+      await authDb.user.update({ where: { id: scope.userId }, data: { role: "user" } });
+    }
+  });
+
+  it("keeps organization price reviews inside that organization", async () => {
+    const modelId = "tts-1-hd";
+    const price = async (target: Parameters<typeof listModelPrices>[0]) =>
+      (await listModelPrices(target)).models.find((m) => m.id === modelId)!;
+    const system = { scope: "system" as const };
+    const before = await price(system);
+    const other = await authDb.workspace.create({ data: { name: "Other synthetic catalog" } });
+    workspaces.push(other.id);
+    const submit = (workspaceId: string) => app.inject({
+      method: "PUT",
+      url: `/api/organizations/${workspaceId}/ai/models/${modelId}`,
+      headers: { origin, cookie },
+      payload: { confirmPrice: before.reviewKey },
+    });
+    expect((await submit(other.id)).statusCode).toBe(404);
+    const response = await submit(scope.workspaceId);
+    expect(response.statusCode).toBe(200);
+    expect(await price(org())).toMatchObject({
+      verifiedAt: response.json().verifiedAt,
+      unitPrice: before.unitPrice,
+      priceSource: "orbit",
+      overridden: false,
+    });
+    expect(await price(system)).toEqual(before);
+    expect(await price({ scope: "workspace", workspaceId: other.id })).toEqual(before);
+  });
+
   it("lets organization owners edit their catalog over HTTP, not other members", async () => {
     const list = await app.inject({
       method: "GET",

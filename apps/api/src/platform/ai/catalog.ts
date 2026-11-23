@@ -1,4 +1,5 @@
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import { createHash } from "node:crypto";
+import { authDb, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   priceCatalog,
@@ -99,6 +100,59 @@ export function mergeCatalog(overrides: Override[], now = Date.now()): CatalogMo
       };
     }
     return { ...model, needsReview: priceNeedsReview(model.verifiedAt, now) };
+  });
+}
+
+export const modelPriceConfirmedAction = "ai_model_price.confirmed";
+
+export function priceReviewKey(model: CatalogModel) {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      model.id,
+      model.priceSource,
+      model.verifiedAt,
+      model.rate?.inputMicrosPerMillion,
+      model.rate?.outputMicrosPerMillion,
+      model.rate?.cachedInputMicrosPerMillion,
+      model.rate?.cacheWriteMicrosPerMillion,
+      model.rate?.webSearchMicrosPerCall,
+      model.rate?.webSearchInputTokensPerCall,
+      model.perImageMicros,
+      model.unitPrice,
+    ]))
+    .digest("hex");
+}
+
+/**
+ * Attach a recorded review to the same effective price in the catalog views.
+ * A system review carries through to workspaces that inherit that price.
+ */
+export async function withPriceReviews(catalog: CatalogModel[], workspaceId: string | null) {
+  const confirmations = await authDb.systemAuditEvent.findMany({
+    where: {
+      action: modelPriceConfirmedAction,
+      targetType: "ai_model_price",
+      targetId: { in: catalog.map((model) => model.id) },
+      ...(workspaceId === null
+        ? { workspaceId: null }
+        : { OR: [{ workspaceId: null }, { workspaceId }] }),
+    },
+    // A delayed review of an earlier price cannot supersede the current price's review.
+    distinct: ["workspaceId", "targetId", "metadata"],
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { targetId: true, createdAt: true, metadata: true },
+  });
+  return catalog.map((model) => {
+    const reviewKey = priceReviewKey(model);
+    const confirmation = confirmations.find((entry) =>
+      entry.targetId === model.id &&
+      (entry.metadata as { reviewKey?: unknown } | null)?.reviewKey === reviewKey,
+    );
+    if (!confirmation || confirmation.createdAt.getTime() <= Date.parse(model.verifiedAt)) {
+      return { ...model, reviewKey };
+    }
+    const verifiedAt = confirmation.createdAt.toISOString();
+    return { ...model, reviewKey, verifiedAt, needsReview: priceNeedsReview(verifiedAt) };
   });
 }
 

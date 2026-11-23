@@ -31,6 +31,7 @@ type CatalogRow = {
   active: boolean;
   priceSource: "orbit" | "system" | "organization";
   needsReview: boolean;
+  reviewKey: string;
   overridden: boolean;
 };
 
@@ -75,6 +76,7 @@ const text = {
     perImage: "booked per image",
     checked: "checked",
     review: "please check",
+    confirm: "Confirm price",
     off: "off",
     edit: "Edit",
     reset: "Reset",
@@ -110,6 +112,7 @@ const text = {
     perImage: "gebucht pro Bild",
     checked: "geprüft",
     review: "bitte prüfen",
+    confirm: "Preis bestätigen",
     off: "aus",
     edit: "Bearbeiten",
     reset: "Zurücksetzen",
@@ -154,46 +157,17 @@ export function ModelPricesPanel({
       </div>
       {reset.error && <Alert kind="error">{errorText(reset.error, locale)}</Alert>}
       <div className="capability-readiness">
-        {groups.map(({ provider, rows }) =>
-          rows.map((m) => (
-            <div className="data-row" key={m.id}>
-              <div>
-                <strong>
-                  {m.displayName} · {m.id}
-                </strong>
-                <p>
-                  {provider === "anthropic" ? "Claude" : "OpenAI"} · {t.purpose[m.purpose]}
-                  {" · "}
-                  {m.unitPrice
-                    ? unitLabel(m.unitPrice, t)
-                    : m.purpose === "image"
-                    ? `${usd(m.perImageMicros, 3)} ${t.perImage}`
-                    : m.rate
-                      ? `${usd(m.rate.inputMicrosPerMillion)} / ${usd(m.rate.outputMicrosPerMillion)} ${t.perMillion}`
-                      : "—"}
-                  {" · "}
-                  {t.checked} {when(m.verifiedAt, locale).split(",")[0]} ({t.source[m.priceSource]})
-                </p>
-              </div>
-              {m.needsReview && <Badge tone="warning">{t.review}</Badge>}
-              {!m.active && <Badge tone="neutral">{t.off}</Badge>}
-              <div className="page-actions">
-                <Button variant="outline" onClick={() => setEditing(m)}>
-                  {t.edit}
-                </Button>
-                {m.overridden && (
-                  <Button
-                    variant="outline"
-                    disabled={reset.pending}
-                    onClick={() =>
-                      reset.run(() => remove(`${path}/${encodeURIComponent(m.id)}`))
-                    }
-                  >
-                    {t.reset}
-                  </Button>
-                )}
-              </div>
-            </div>
+        {groups.flatMap(({ rows }) =>
+          rows.map((row) => (
+            <ModelPriceRow
+              key={`${path}/${row.id}/${row.reviewKey}`}
+              row={row}
+              path={path}
+              locale={locale}
+              onEdit={() => setEditing(row)}
+              onReset={() => reset.run(() => remove(`${path}/${encodeURIComponent(row.id)}`))}
+              resetting={reset.pending}
+            />
           )),
         )}
       </div>
@@ -210,6 +184,77 @@ export function ModelPricesPanel({
         />
       )}
     </section>
+  );
+}
+
+function ModelPriceRow({
+  row,
+  path,
+  locale,
+  onEdit,
+  onReset,
+  resetting,
+}: {
+  row: CatalogRow;
+  path: string;
+  locale: Locale;
+  onEdit: () => void;
+  onReset: () => void;
+  resetting: boolean;
+}) {
+  const t = text[locale === "de" ? "de" : "en"];
+  const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
+  const confirmation = useMutation();
+  const needsReview = row.needsReview && !confirmedAt;
+  const price = row.unitPrice
+    ? unitLabel(row.unitPrice, t)
+    : row.purpose === "image"
+      ? `${usd(row.perImageMicros, 3)} ${t.perImage}`
+      : row.rate
+        ? `${usd(row.rate.inputMicrosPerMillion)} / ${usd(row.rate.outputMicrosPerMillion)} ${t.perMillion}`
+        : "—";
+
+  return (
+    <div className="data-row model-price-row">
+      <div>
+        <strong>{row.displayName} · {row.id}</strong>
+        <p>
+          {row.provider === "anthropic" ? "Claude" : "OpenAI"} · {t.purpose[row.purpose]} · {price}
+          {" · "}
+          <span role="status">
+            {t.checked} {when(confirmedAt ?? row.verifiedAt, locale).split(",")[0]} ({t.source[row.priceSource]})
+          </span>
+        </p>
+        {confirmation.error && <Alert kind="error">{errorText(confirmation.error, locale)}</Alert>}
+      </div>
+      <div className="page-actions">
+        {needsReview && <Badge tone="warning">{t.review}</Badge>}
+        {!row.active && <Badge tone="neutral">{t.off}</Badge>}
+        {needsReview && (
+          <Button
+            variant="outline"
+            disabled={!row.reviewKey || confirmation.pending || resetting}
+            onClick={() => confirmation.run(async () => {
+              const result = await put<{ verifiedAt: string }>(
+                `${path}/${encodeURIComponent(row.id)}`,
+                { confirmPrice: row.reviewKey },
+              );
+              setConfirmedAt(result.verifiedAt);
+            })}
+          >
+            {t.confirm}
+          </Button>
+        )}
+        <Button variant="outline" disabled={confirmation.pending} onClick={onEdit}>
+          {t.edit}
+        </Button>
+        {row.overridden && (
+          <Button variant="outline" disabled={resetting || confirmation.pending} onClick={onReset}>
+            {t.reset}
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 

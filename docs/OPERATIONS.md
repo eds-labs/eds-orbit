@@ -66,6 +66,7 @@ Settings → AI & budget (owners) holds the project's AI spending authority: the
 `ORBIT_AI_CATALOG=true` turns on Orbit's central price catalog (`packages/ai/src/catalog.ts`, docs/plans/ai-central-management.md phase A). Every project of every organization then verifies and prices the active catalog models; a project's own models and prices still win.
 
 - **Prices.** Administrators change the system price under Administration → KI & Wissen → Modelle & Preise, and organization owners change their organization's under Organization → Integrationen. Every change is audited (`ai_model_price.updated`, `ai_model_price.reset`). "Zurücksetzen" returns to the next level: organization → system → Orbit.
+- **Price review.** After comparing a flagged catalog price with the provider’s price, choose **Confirm price** on its row. The date updates for that price without creating a price override or changing model availability. The confirmation applies to the reviewed price and appears in projects that inherit it.
 - **Images.** In a project, KI & Budget → OpenAI → "Bilder erzeugen" books the catalog amount per image.
 - **Rollback.** Set the flag back to `false`. The overrides stay stored and unused.
 
