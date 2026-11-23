@@ -52,8 +52,14 @@ export const marketingWeb: WebModule = {
     en: "Missions, content, editorial plan, assets and results.",
     de: "Missionen, Inhalte, Redaktionsplan, Assets und Ergebnisse.",
   },
-  home: MarketingHomeCard,
-  homeOrder: 10,
+  homeWidgets: [{
+    id: "marketing.overview",
+    title: { en: "Marketing", de: "Marketing" },
+    description: { en: "Upcoming posts, missions and approvals.", de: "Anstehende Beiträge, Missionen und Freigaben." },
+    defaultSize: "compact",
+    defaultOrder: 10,
+    component: MarketingHomeCard,
+  }],
   groupOrder: 10,
   chat: marketingChat,
   actionRequests: {

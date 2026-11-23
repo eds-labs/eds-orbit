@@ -20,6 +20,7 @@ const MATRIX_FILE = new URL("./fixtures/access-matrix.json", import.meta.url);
 // of them; nothing reaches a provider (test mode, no external writes).
 Object.assign(process.env, {
   ORBIT_KNOWLEDGE_WORKSPACE: "true",
+  ORBIT_HOME_WIDGETS: "true",
   ORBIT_AGENTS: "true",
   ORBIT_CONTENT_PACKAGES: "true",
   ORBIT_TOOL_SEARCH: "true",

@@ -1,3 +1,4 @@
+import { SocialHome } from "./home";
 import { AtSign, BarChart3, CalendarDays, Images, LayoutDashboard, PenSquare } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { AccountsView } from "./accounts";
@@ -24,6 +25,13 @@ const nav = (key: keyof ReturnType<typeof socialText>["nav"]) => ({
  * the project row).
  */
 export const socialWeb: WebModule = {
+  homeWidgets: [{
+    id: "social.upcoming",
+    title: { en: "Scheduled social posts", de: "Geplante Social-Beiträge" },
+    description: { en: "Next posts on the project calendar.", de: "Die nächsten Beiträge im Projektkalender." },
+    defaultSize: "compact",
+    component: SocialHome,
+  }],
   id: "social",
   optIn: true,
   displayName: { en: "Social", de: "Social Media" },

@@ -225,6 +225,21 @@ export type AgentSetup = {
   }>;
 };
 
+export type HomeWidgetSize = "compact" | "wide";
+
+export type HomeWidget = {
+  /** Stable, namespaced ID stored with the user's layout. */
+  id: string;
+  title: Label;
+  description: Label;
+  defaultSize: HomeWidgetSize;
+  /** Widgets with a default order also appear in the standard layout. */
+  defaultOrder?: number;
+  feature?: string;
+  minAccess?: "editor" | "owner";
+  component: ComponentType;
+};
+
 /** The web manifest of a module, mounted at /p/:projectId/<id>. */
 export type WebModule = {
   /** Same id as the server module (GET /api/projects/:id/modules). */
@@ -247,9 +262,7 @@ export type WebModule = {
   /** Position of the module's group in the sidebar (UI restructure). */
   groupOrder?: number;
   views: readonly ViewDef[];
-  /** A section of the project home, ordered by homeOrder. */
-  home?: ComponentType;
-  homeOrder?: number;
+  homeWidgets?: readonly HomeWidget[];
   /** Message cards and sections of the platform chat (WP2.3). */
   chat?: ChatExtension;
   /** The approvals inbox view of the module's action request types (WP2.3). */
@@ -288,6 +301,7 @@ export type WebRegistry = {
   /** Platform pages, mounted at /p/:projectId/<path>. */
   platform: readonly ViewDef[];
   modules: readonly WebModule[];
+  homeWidgets?: readonly HomeWidget[];
   /** Texts of the platform's own attention items, by kind. */
   attention?: Readonly<Record<string, AttentionRenderer>>;
   /** Pages outside any project, mounted at their own path. */

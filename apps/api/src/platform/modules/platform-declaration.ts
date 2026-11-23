@@ -176,6 +176,7 @@ export const platformDeclaration: PlatformDeclaration = {
     "ImageProvenance",
     "Notification",
     "NotificationPreference",
+    "ProjectHomeLayout",
     "ProjectModule",
     "Entity",
     "EntityVersion",

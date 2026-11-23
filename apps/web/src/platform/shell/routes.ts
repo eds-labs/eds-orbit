@@ -3,6 +3,7 @@ import { parseManagePath } from "../settings-center/routes";
 import type { ManageTarget } from "../settings-center/types";
 import type {
   AiCeiling,
+  HomeWidget,
   IntegrationContribution,
   Label,
   SettingsSection,
@@ -328,18 +329,51 @@ export function moduleShown(
 }
 
 /**
- * The cards of the project home (UI restructure §5.1): the `home` of every
- * shown module, ordered by `homeOrder`. The platform's system status card
- * follows them on the page.
+ * The original home cards, for installations using the legacy dashboard.
+ * Default cards share their registration with the personalized dashboard.
  */
 export function homeSections(
   modules: readonly WebModule[],
   enabled: (id: string) => boolean,
 ): Array<{ moduleId: string; component: ComponentType }> {
   return modules
-    .filter((m) => m.home && enabled(m.id))
-    .sort((a, b) => (a.homeOrder ?? 0) - (b.homeOrder ?? 0))
-    .map((m) => ({ moduleId: m.id, component: m.home! }));
+    .filter((module) => enabled(module.id))
+    .flatMap((module) =>
+      (module.homeWidgets ?? []).flatMap(({ component, defaultOrder }) =>
+        defaultOrder === undefined
+          ? []
+          : [{ moduleId: module.id, component, defaultOrder }],
+      ),
+    )
+    .sort((a, b) => a.defaultOrder - b.defaultOrder);
+}
+
+/** New widgets require a positive access signal from the project. */
+export function availableHomeWidgets(
+  registry: WebRegistry,
+  states: ReadonlyArray<{ id: string; enabled: boolean; access?: string }>,
+  features: Record<string, boolean>,
+): HomeWidget[] {
+  const offered = (widget: HomeWidget) =>
+    !widget.feature || features[widget.feature] === true;
+  const byModule = new Map(states.map((state) => [state.id, state]));
+  return [
+    ...(registry.homeWidgets ?? []).filter(offered),
+    ...registry.modules.flatMap((module) => {
+      const state = byModule.get(module.id);
+      if (
+        !state?.enabled ||
+        !["owner", "editor", "viewer"].includes(state.access ?? "") ||
+        !accessReaches(state.access, module.minAccess)
+      )
+        return [];
+
+      return (module.homeWidgets ?? []).filter(
+        (widget) =>
+          offered(widget) && accessReaches(state.access, widget.minAccess),
+      );
+    }),
+  ];
 }
 
 /**

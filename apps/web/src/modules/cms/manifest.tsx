@@ -1,3 +1,4 @@
+import { CmsHome } from "./home";
 import {
   CalendarDays,
   FileText,
@@ -32,6 +33,13 @@ const nav = (key: keyof ReturnType<typeof cmsText>["nav"]) => ({
  * project row).
  */
 export const cmsWeb: WebModule = {
+  homeWidgets: [{
+    id: "cms.publishing",
+    title: { en: "Content and publishing", de: "Inhalte und Veröffentlichungen" },
+    description: { en: "Drafts, pending approvals and scheduled publications.", de: "Entwürfe, offene Freigaben und geplante Veröffentlichungen." },
+    defaultSize: "compact",
+    component: CmsHome,
+  }],
   id: "cms",
   optIn: true,
   displayName: { en: "Content", de: "Inhalte" },

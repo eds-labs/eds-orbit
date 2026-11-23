@@ -1,3 +1,4 @@
+import { WebmailHome } from "./home";
 import { Inbox } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { WebmailOverview } from "./overview";
@@ -9,6 +10,13 @@ import { webmailSettings } from "./settings";
  * list comes from the member's grants, never from the project role.
  */
 export const webmailWeb: WebModule = {
+  homeWidgets: [{
+    id: "webmail.mailboxes",
+    title: { en: "Shared mailboxes", de: "Freigegebene Postfächer" },
+    description: { en: "Number and status of mailboxes shared with you.", de: "Anzahl und Zustand deiner freigegebenen Postfächer." },
+    defaultSize: "compact",
+    component: WebmailHome,
+  }],
   id: "webmail",
   optIn: true,
   displayName: { en: "Webmail", de: "Webmail" },

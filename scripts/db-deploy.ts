@@ -200,6 +200,7 @@ try {
     // Member notifications (WP4.7), private per member by RLS.
     "Notification",
     "NotificationPreference",
+    "ProjectHomeLayout",
     // Support (WP5.1).
     "SupportInbox",
     "SupportContact",

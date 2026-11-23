@@ -1,5 +1,14 @@
 # Requirements traceability
 
+## Personal project dashboard (local)
+
+| Requirement | Verification |
+| --- | --- |
+| Personal layouts are isolated by organization, project and member. Concurrent saves cannot silently overwrite each other. | `home-layout.integration.test.ts`, access matrix, RLS matrix |
+| Existing cards are offered by default. Module manifests can add optional widgets and enforce their own visibility. | `home-layout.test.tsx`, `home-widgets.spec.ts` |
+| The dashboard supports mouse, touch and keyboard, and retains placements across device and project changes. | `home-widgets.spec.ts` |
+| The original project home and layout route behavior are available with the flag off. | Flag-off browser smoke and `home-layout.integration.test.ts` |
+
 ## Content Hub and SEO publishing (ADR 0029, proposed; plan [plans/CONTENT_HUB.md](plans/CONTENT_HUB.md); 2026-11-14, docs only)
 
 Planned requirements and the work packages that will cover them. Nothing is implemented; the evidence column is filled when a package is built.

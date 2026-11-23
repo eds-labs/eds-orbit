@@ -88,8 +88,14 @@ export const knowledgeWeb: WebModule = {
     en: "Sources, verified facts and the search index.",
     de: "Quellen, verifizierte Fakten und der Suchindex.",
   },
-  home: KnowledgeHomeCard,
-  homeOrder: 20,
+  homeWidgets: [{
+    id: "knowledge.overview",
+    title: { en: "Knowledge", de: "Wissen" },
+    description: { en: "Sources, verified facts and conflicts.", de: "Quellen, verifizierte Fakten und Konflikte." },
+    defaultSize: "compact",
+    defaultOrder: 20,
+    component: KnowledgeHomeCard,
+  }],
   groupOrder: 30,
   attention: knowledgeAttention,
   integrations: [

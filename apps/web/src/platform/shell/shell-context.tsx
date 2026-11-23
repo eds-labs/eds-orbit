@@ -7,6 +7,7 @@ import type {
   AiCeiling,
   ConnectorProvider,
   IntegrationContribution,
+  HomeWidget,
   Label,
   SettingsSection,
 } from "./types";
@@ -52,6 +53,7 @@ export type ShellContextValue = {
   modules: readonly ShellModule[];
   /** Sections of the project home contributed by enabled modules. */
   homeSections: ReadonlyArray<{ moduleId: string; component: ComponentType }>;
+  homeWidgets?: readonly HomeWidget[];
   /** The URL of a page in the open project. */
   hrefOf: (key: string) => string;
   /**

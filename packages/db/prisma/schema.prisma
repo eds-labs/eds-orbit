@@ -25,6 +25,7 @@ model User {
   accounts           Account[]
   memberships        WorkspaceMember[]
   projectMemberships ProjectMember[]
+  homeLayouts        ProjectHomeLayout[]
   chatConversations ChatConversation[]
   oauthClients       OauthClient[]
   oauthAccessTokens  OauthAccessToken[]
@@ -143,6 +144,7 @@ model Project {
   workDueAt        DateTime            @default(now()) @db.Timestamptz(3)
   workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members          ProjectMember[]
+  homeLayouts      ProjectHomeLayout[]
   entities         Entity[]
   outbox           Outbox[]
   budgets          BudgetReservation[]
@@ -470,6 +472,20 @@ model Notification {
   severity       String    @default("info")
 
   @@index([workspaceId, projectId, userId, createdAt])
+}
+
+/// Private project start page preferences. Null widgets use the defaults.
+model ProjectHomeLayout {
+  workspaceId String  @db.Uuid
+  projectId   String  @db.Uuid
+  userId      String
+  revision    Int
+  widgets     Json?
+  project     Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
 }
 
 /// A member's choice per notification kind (WP4.7).

@@ -6110,6 +6110,20 @@ svg.agent-graph {
 .home-section:empty {
   display: none;
 }
+.home-widget-rows {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+.home-widget-rows li {
+  display: grid;
+  overflow-wrap: anywhere;
+}
+.home-widget-rows span {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
 .home-card .panel-head {
   align-items: center;
   padding: 10px 20px 6px;

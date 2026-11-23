@@ -1,5 +1,16 @@
 # Implementation status
 
+## Personal project dashboard (2026-11-23, local)
+
+The project home has a personal widget catalog and responsive layout editor.
+See [Home dashboard](HOME_DASHBOARD.md) for the widget contract, layout API,
+migration and rollout. The default-off `ORBIT_HOME_WIDGETS` flag preserves the
+original home until activation. The database change is additive and needs a
+new approved schema hash before a production push. Local verification covered
+the migration under the restricted role, member and project isolation,
+conflicting saves, three browser scenarios, the existing assistant prompt,
+and a flag-off browser smoke test.
+
 ## Drive connection watch: no silent Drive outage before an assignment (2026-11-19)
 
 Status: on main 06c3f2cb, deployed to production 2026-11-20 13:32 UTC (Coolify deployment 4bhktgo5…), `ORBIT_DRIVE_WATCH=true` set with Mario's approval and applied by redeploy oonom3n2… (13:34 UTC). First pass 13:37 UTC: verified local copies of the approved Drive-only images (FamilyPlan logo and icon, uLiquid logo), no outage notice (both connections healthy). Trigger: Google rejected uLiquid's Drive refresh on 2026-11-18 (`invalid_grant`, the seven-day expiry of an OAuth app in "Testing", as on 2026-10-19), and the owner learnt it only through a failed assignment. Root cause fixed outside the code on 2026-11-19 with Mario's approval: the Google Cloud project `eds-orbit` (Branding: homepage and privacy link added) is published ("In production", unverified), and both projects were reconnected; a live health check of uLiquid and FamilyPlan passed afterwards. Risk medium (background writes of asset records, owner notices), environment production on delivery. Flag `ORBIT_DRIVE_WATCH` (default `false`); no migration, no schema hash.

@@ -1,3 +1,4 @@
+import { AdsHome } from "./home";
 import { BarChart3, Images, LayoutDashboard, LayoutGrid, Link2, Megaphone } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { adsText } from "./labels";
@@ -16,6 +17,13 @@ const nav = (key: keyof ReturnType<typeof adsText>["nav"]) => ({
  * enabled (ORBIT_ADS and the project row). Viewers see nothing of it.
  */
 export const adsWeb: WebModule = {
+  homeWidgets: [{
+    id: "ads.accounts",
+    title: { en: "Ad accounts", de: "Werbekonten" },
+    description: { en: "Linked ad accounts and their status.", de: "Verknüpfte Werbekonten und ihr Status." },
+    defaultSize: "compact",
+    component: AdsHome,
+  }],
   id: "ads",
   optIn: true,
   minAccess: "editor",

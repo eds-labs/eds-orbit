@@ -224,6 +224,7 @@ import {
   registerNotificationRoutes,
 } from "./platform/notifications/routes.ts";
 import { notificationsEnabled } from "./platform/notifications/members.ts";
+import { registerHomeLayoutRoutes } from "./platform/home/routes.ts";
 import { registerAttentionRoutes } from "./platform/attention/routes.ts";
 import {
   isAdministrationRoute,
@@ -584,6 +585,7 @@ export async function buildServer(
   registerEmailRoutes(app, auth);
   // What needs the member's attention in the project (UI restructure §4.1).
   registerAttentionRoutes(app, auth);
+  registerHomeLayoutRoutes(app, auth, config.ORBIT_HOME_WIDGETS === "true");
   registerTaskRoutes(app, auth);
   // System administration, organization settings, invitations and the
   // user's own account (ADR 0013).
@@ -873,6 +875,7 @@ export async function buildServer(
     return {
       features: {
         knowledgeWorkspace: config.ORBIT_KNOWLEDGE_WORKSPACE === "true",
+        homeWidgets: config.ORBIT_HOME_WIDGETS === "true",
         agents: agentsEnabled(),
         customerContext: config.ORBIT_CUSTOMER_CONTEXT === "true",
         creativeStudio: config.ORBIT_CREATIVE_STUDIO === "true",

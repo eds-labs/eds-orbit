@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { HOME_LAYOUT_PATH, homeLayoutSchema } from "./platform/home/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import {
   draftCleanupInput,
@@ -61,6 +62,7 @@ export function installOpenApiSchemas(app: FastifyInstance) {
         required: ["items"],
         properties: { items: { type: "array", items: entity } },
       };
+    if (route.url === HOME_LAYOUT_PATH) response = homeLayoutSchema;
     route.schema = {
       ...route.schema,
       operationId: method + "_" + route.url.replace(/[^a-z0-9]/gi, "_"),

@@ -37,8 +37,14 @@ export const workWeb: WebModule = {
     en: "Initiatives, milestones and tasks.",
     de: "Vorhaben, Meilensteine und Aufgaben.",
   },
-  home: WorkHome,
-  homeOrder: 8,
+  homeWidgets: [{
+    id: "work.overview",
+    title: { en: "My tasks", de: "Meine Aufgaben" },
+    description: { en: "Tasks assigned to you.", de: "Deine zugewiesenen Aufgaben." },
+    defaultSize: "compact",
+    defaultOrder: 8,
+    component: WorkHome,
+  }],
   // After Marketing (10), before Support (20): Q-P1-4, 2026-10-25.
   groupOrder: 15,
   settings: workSettings,

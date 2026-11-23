@@ -20,6 +20,7 @@ import { Decisions } from "@/platform/shell/decisions";
 import { AgentsView } from "@/platform/agents/agents-view";
 import { DrivePage } from "@/platform/drive/drive-page";
 import { ProjectHome } from "@/platform/shell/home";
+import { SystemStatusCard } from "@/platform/shell/system-status";
 import { OrbitChat } from "@/components/chat";
 import { Operations } from "@/components/management";
 import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
@@ -273,6 +274,17 @@ export const webRegistry: WebRegistry = {
     },
   ],
   attention: platformAttention,
+  homeWidgets: [{
+    id: "platform.system-status",
+    title: label("systemStatus"),
+    description: {
+      en: "Worker, connections and AI costs that need checking.",
+      de: "Worker, Verbindungen und KI-Kosten mit Prüfbedarf.",
+    },
+    defaultSize: "compact",
+    defaultOrder: 100,
+    component: SystemStatusCard,
+  }],
   // The OAuth authorization of MCP clients (Track M, WP-M1): Better Auth sends
   // the browser here; the pages sit outside every project.
   standalone: [

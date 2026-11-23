@@ -36,6 +36,7 @@ import {
 import { NotificationBell } from "./notification-bell";
 import {
   activeNavKey,
+  availableHomeWidgets,
   crumbs,
   pageTitle,
   knownModuleStates,
@@ -290,6 +291,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     ? `/projects/${encodeURIComponent(statesProjectId)}/modules?revision=${revision}`
     : null;
   const moduleStates = useResource<ModuleStates>(statesPath);
+  const currentModuleStates =
+    moduleStates.path === statesPath ? moduleStates.data : null;
+  const currentModuleError =
+    moduleStates.errorPath === statesPath ? moduleStates.error : null;
   // Whether the last address the shell knew needed the capabilities.
   const capsNeeded = manage !== null || firstMapping !== null;
   const [capsBefore, setCapsBefore] = useState(false);
@@ -327,18 +332,18 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     useState<SettledModuleStates<ModuleStates> | null>(null);
   useEffect(() => {
     if (!project) return;
-    if (moduleStates.data)
-      setLastStates({ projectId: project.id, states: moduleStates.data });
-    else if (moduleStates.error)
+    if (currentModuleStates)
+      setLastStates({ projectId: project.id, states: currentModuleStates });
+    else if (currentModuleError)
       // A failure after a success keeps the states that loaded.
       setLastStates((last) =>
         last?.projectId === project.id && last.states
           ? last
           : { projectId: project.id, states: null },
       );
-  }, [project?.id, moduleStates.data, moduleStates.error]);
+  }, [project?.id, currentModuleStates, currentModuleError]);
   const knownStates = knownModuleStates(
-    moduleStates.data,
+    currentModuleStates,
     lastStates,
     project?.id,
   );
@@ -584,7 +589,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       const module = registry.modules.find((m) => m.id === id);
       return moduleShown(states, id, module?.optIn === true, module?.minAccess);
     };
-    const features = { ...knownStates?.features, agentPlatform, googleDrive };
+    const features: Record<string, boolean> = {
+      ...knownStates?.features,
+      agentPlatform,
+      googleDrive,
+    };
     const nav = navOrder(navigationForFeatures(table.routes, features));
     const active = registry.modules.filter((m) => enabled(m.id));
     const hrefOf = (key: string) => {
@@ -609,6 +618,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         settingsSection: moduleSettingsSection(m.id, m.settings ?? []),
       })),
       homeSections: homeSections(registry.modules, enabled),
+      homeWidgets:
+        features.homeWidgets === true
+          ? availableHomeWidgets(registry, states ?? [], features)
+          : undefined,
       hrefOf,
       ...shellLinks({
         hrefOf,
@@ -1030,8 +1043,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                 .join(",")}`}
             >
               {waitsForModuleStates(
-                moduleStates.data,
-                moduleStates.error,
+                currentModuleStates,
+                currentModuleError,
                 lastStates,
                 project.id,
               ) ? (
@@ -1306,8 +1319,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                   // An old settings address has no page: the redirect decides it.
                   <NotFound t={t} homeHref={homeHref} />
                 ) : waitsForModuleStates(
-                    moduleStates.data,
-                    moduleStates.error,
+                    currentModuleStates,
+                    currentModuleError,
                     lastStates,
                     project.id,
                   ) ? (

@@ -14,6 +14,7 @@ import { useAttention } from "./attention";
 import { AttentionList } from "./attention-list";
 import { useShell } from "./shell-context";
 import { SystemStatusCard } from "./system-status";
+import { HomeWidgets } from "./home-widgets";
 
 // The project home (UI restructure §5.1): a greeting with what needs the
 // member today, the assistant prompt, the status strip, the attention items
@@ -70,7 +71,7 @@ const fill = (template: string, values: Record<string, string>) =>
   template.replace(/\{(\w+)\}/g, (all, key: string) => values[key] ?? all);
 
 export function ProjectHome() {
-  const { identity, locale, t, refresh } = useWorkspace();
+  const { identity, project, locale, t, refresh } = useWorkspace();
   const shell = useShell();
   const attention = useAttention();
   const now = new Date();
@@ -140,16 +141,20 @@ export function ProjectHome() {
           </ul>
         )}
       </section>
-      <div className="home-cards">
-        {shell.homeSections.map(({ moduleId, component: Section }) => (
-          <div key={moduleId} className="home-section" data-module={moduleId}>
-            <Section />
+      {shell.homeWidgets ? (
+        <HomeWidgets key={`${identity.user.id}:${project.id}`} widgets={shell.homeWidgets} />
+      ) : (
+        <div className="home-cards">
+          {shell.homeSections.map(({ moduleId, component: Section }) => (
+            <div key={moduleId} className="home-section" data-module={moduleId}>
+              <Section />
+            </div>
+          ))}
+          <div className="home-section" data-module="platform">
+            <SystemStatusCard />
           </div>
-        ))}
-        <div className="home-section" data-module="platform">
-          <SystemStatusCard />
         </div>
-      </div>
+      )}
     </div>
   );
 }

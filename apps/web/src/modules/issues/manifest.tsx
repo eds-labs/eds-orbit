@@ -29,8 +29,14 @@ export const issuesWeb: WebModule = {
     en: "Product issues from Support and connected systems, their tasks and releases.",
     de: "Produkt-Issues aus Support und verbundenen Systemen, ihre Aufgaben und Releases.",
   },
-  home: IssuesHome,
-  homeOrder: 9,
+  homeWidgets: [{
+    id: "issues.overview",
+    title: { en: "Issues", de: "Issues" },
+    description: { en: "Open issues and the triage queue.", de: "Offene Issues und Triage." },
+    defaultSize: "compact",
+    defaultOrder: 9,
+    component: IssuesHome,
+  }],
   // After Support (20), plan §5.
   groupOrder: 25,
   settings: issuesSettings,
