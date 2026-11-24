@@ -478,6 +478,69 @@ function missionMayPublish(
   );
 }
 
+/**
+ * A live booking already passed the full index gate in publishIntent. A
+ * corpus change alone may be disregarded only for that exact, scheduled
+ * package with a recorded owner decision.
+ */
+async function ownerApprovedBooking(
+  tx: DbTx,
+  scope: Scope,
+  publicationId: string,
+  pkg: Awaited<ReturnType<typeof packageFor>>,
+  at: Date,
+): Promise<boolean> {
+  const publication = await tx.entity.findFirst({
+    where: {
+      id: publicationId,
+      kind: "publications",
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+    },
+  });
+  if (!publication) return false;
+  const booking = data(publication);
+  const slot = Date.parse(booking.scheduledAt);
+  if (
+    booking.test !== false ||
+    !["intent_created", "sending"].includes(booking.status) ||
+    booking.vetoedAt ||
+    booking.contentId !== pkg.content.id ||
+    booking.packageHash !== pkg.packageHash ||
+    slot !== Date.parse(pkg.packageData.scheduledAt ?? "") ||
+    publication.createdAt.valueOf() >= slot
+  )
+    return false;
+
+  const isOwner = async (userId: unknown) =>
+    typeof userId === "string" &&
+    (await actorScope(scope.workspaceId, scope.projectId, userId))?.role ===
+      "owner";
+
+  if (
+    Date.parse(booking.ownerReleasedAt) <= slot &&
+    (await isOwner(booking.ownerReleasedBy))
+  )
+    return true;
+
+  for (const row of await list(tx, scope, "approvals")) {
+    const approval = data(row);
+    if (
+      approval.contentId === booking.contentId &&
+      approval.packageHash === booking.packageHash &&
+      row.createdAt.valueOf() <= publication.createdAt.valueOf() &&
+      Date.parse(approval.expiresAt) > at.valueOf() &&
+      (approval.status === "approved" ||
+        (booking.status === "sending" &&
+          approval.status === "consumed" &&
+          approval.publicationId === publicationId)) &&
+      (await isOwner(approval.userId))
+    )
+      return true;
+  }
+  return false;
+}
+
 export async function preflight(
   tx: DbTx,
   scope: Scope,
@@ -486,8 +549,8 @@ export async function preflight(
     test: boolean;
     at?: Date;
     ignoreApproval?: boolean;
-    // Only a claimed publication may continue using its own consumed exact approval.
-    approvalPublicationId?: string;
+    // Set only by the watch and the dispatch path of a stored publication.
+    publicationId?: string;
     // Only for a publication scheduled by an assignment run (R52).
     veto?: VetoWindow;
   } = {
@@ -507,7 +570,7 @@ export async function preflight(
     scope,
     contentId,
     at,
-    options.approvalPublicationId,
+    options.publicationId,
   );
   if (humanBlocker) blockers.push(humanBlocker);
   let released: boolean | undefined;
@@ -774,7 +837,18 @@ export async function preflight(
     if (process.env.ENABLE_EXTERNAL_WRITES !== "true")
       blockers.push("EXTERNAL_WRITES_DISABLED");
     const liveEvaluation = await validateActiveIndexEvaluation(tx, scope, at);
-    if (!liveEvaluation.valid) blockers.push("LIVE_RAG_EVAL_REQUIRED");
+    if (
+      !liveEvaluation.valid &&
+      !(
+        options.publicationId &&
+        c.type === "social" &&
+        claims.problems.length === 0 &&
+        liveEvaluation.reasons.length === 1 &&
+        liveEvaluation.reasons[0] === "INDEX_EVALUATION_CORPUS_CHANGED" &&
+        (await ownerApprovedBooking(tx, scope, options.publicationId, pkg, at))
+      )
+    )
+      blockers.push("LIVE_RAG_EVAL_REQUIRED");
     const connector = (await list(tx, scope, "connectors")).find(
       (x) =>
         data(x).provider === "postiz" && data(x).status === "write_verified",

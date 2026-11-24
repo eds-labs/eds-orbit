@@ -571,6 +571,7 @@ export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
   }
   const p = await preflight(tx, scope, v.contentId, {
     test: v.test,
+    publicationId: pub.id,
     ...(v.vetoDeadline && v.assignmentRunId
       ? {
           veto: {

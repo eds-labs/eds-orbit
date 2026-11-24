@@ -98,6 +98,8 @@ The steps, in order:
   - it is less than 30 days old and was made against the unchanged corpus;
   - it has settled build and evaluation receipts.
 
+- **Already scheduled Marketing social posts.** When corpus drift is the only index-evaluation problem, Orbit can still dispatch a live booking that passed the gate when scheduled. It requires the original slot and package, a recorded decision by a project owner, and valid public evidence and claims at dispatch. The same check drives the released-post watcher. Opening new bookings still requires the full index evaluation. Posts whose previous slot was blocked require a new publishing decision.
+
 ### `project_readiness_get`
 
 The result names the project's `publishingBackend` (`postiz`, `postiz_draining` or `social`). Readiness follows what preflight checks on that backend (details in [SOCIAL_POSTIZ_MIGRATION.md](SOCIAL_POSTIZ_MIGRATION.md#readiness-and-the-postiz-queue-watch-per-backend)):

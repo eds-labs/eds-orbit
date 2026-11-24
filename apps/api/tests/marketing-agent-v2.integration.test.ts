@@ -771,7 +771,7 @@ describe.skipIf(!enabled)(
         preflight(tx, project.owner, drafts[0]!.id, {
           test: true,
           ignoreApproval: true,
-          approvalPublicationId: released.publicationId!,
+          publicationId: released.publicationId!,
         }),
       );
       expect(final.blockers).toContain("ASSIGNMENT_HUMAN_APPROVAL_REQUIRED");

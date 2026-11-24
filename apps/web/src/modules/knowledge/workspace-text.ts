@@ -306,13 +306,13 @@ export const knowledgeCopy = {
     bulkPublic: "{n} öffentlich",
     bulkResult: "{done} von {total} bestätigt",
     releaseImpactNamedOne:
-      "Das sperrt {n} freigegebenen Post ({list}), bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+      "Diese Änderung kann {n} freigegebenen Post ({list}) betreffen. Trotzdem fortfahren?",
     releaseImpactNamedMany:
-      "Das sperrt {n} freigegebene Posts ({list}), bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+      "Diese Änderung kann {n} freigegebene Posts ({list}) betreffen. Trotzdem fortfahren?",
     releaseImpactCountOne:
-      "Das sperrt {n} freigegebenen Marketing-Post, bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+      "Diese Änderung kann {n} freigegebenen Marketing-Post betreffen. Trotzdem fortfahren?",
     releaseImpactCountMany:
-      "Das sperrt {n} freigegebene Marketing-Posts, bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+      "Diese Änderung kann {n} freigegebene Marketing-Posts betreffen. Trotzdem fortfahren?",
     releaseImpactToday: "heute",
     releaseImpactTomorrow: "morgen",
   },
@@ -610,13 +610,13 @@ export const knowledgeCopy = {
     bulkPublic: "{n} public",
     bulkResult: "{done} of {total} confirmed",
     releaseImpactNamedOne:
-      "This blocks {n} released post ({list}) until a new index is evaluated and activated. Continue anyway?",
+      "This change can affect {n} released post ({list}). Continue anyway?",
     releaseImpactNamedMany:
-      "This blocks {n} released posts ({list}) until a new index is evaluated and activated. Continue anyway?",
+      "This change can affect {n} released posts ({list}). Continue anyway?",
     releaseImpactCountOne:
-      "This blocks {n} released marketing post until a new index is evaluated and activated. Continue anyway?",
+      "This change can affect {n} released marketing post. Continue anyway?",
     releaseImpactCountMany:
-      "This blocks {n} released marketing posts until a new index is evaluated and activated. Continue anyway?",
+      "This change can affect {n} released marketing posts. Continue anyway?",
     releaseImpactToday: "today",
     releaseImpactTomorrow: "tomorrow",
   },

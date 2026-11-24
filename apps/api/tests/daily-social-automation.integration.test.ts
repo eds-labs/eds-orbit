@@ -19,6 +19,7 @@ const provider = vi.hoisted(() => ({
   generateImageWithReferences: vi.fn(),
   // A live post needs an evaluated live index, which is outside this file's scope.
   liveIndex: false,
+  indexCorpusChanged: false,
   replies: [] as Array<(request: any) => Reply>,
   // The next read of an approved image fails like a storage outage.
   exportFails: 0,
@@ -85,7 +86,9 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
     ) =>
       provider.liveIndex
         ? { valid: true, reasons: [] }
-        : actual.validateActiveIndexEvaluation(...args),
+        : provider.indexCorpusChanged
+          ? { valid: false, reasons: ["INDEX_EVALUATION_CORPUS_CHANGED"] }
+          : actual.validateActiveIndexEvaluation(...args),
   };
 });
 import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
@@ -371,6 +374,7 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
     process.env.ORBIT_SOCIAL = "true";
     provider.replies = [];
     provider.liveIndex = false;
+    provider.indexCorpusChanged = false;
     provider.exportFails = 0;
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
@@ -1046,6 +1050,94 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
         const all = await risks();
         expect(all).toHaveLength(2);
         for (const r of all) expect(r).toContain("LIVE_RAG_EVAL_REQUIRED");
+      });
+
+      it.each(["assignment release", "package approval"] as const)(
+        "keeps a slot from an owner %s after an unrelated corpus change and sends each post once",
+        async (authority) => {
+          const { pubs, slot } = await released();
+          const worker = daily.h.worker();
+          if (authority === "package approval") {
+            const { owner } = daily.project;
+            await daily.h.run(async (tx) => {
+              for (const row of await list(tx, owner, "publications")) {
+                const { ownerReleasedAt, ownerReleasedBy, ...booking } = data(row);
+                expect(ownerReleasedAt).toBeTruthy();
+                expect(ownerReleasedBy).toBe(owner.userId);
+                await update(tx, owner, row, booking);
+              }
+            });
+          }
+          await syncSocialHolds(worker);
+          provider.liveIndex = false;
+          provider.indexCorpusChanged = true;
+
+          const newRelease = await daily.h.run((tx) =>
+            policyModule.preflight(tx, daily.project.owner, pubs[0]!.contentId, {
+              test: false,
+              at: slot,
+            }),
+          );
+          expect(newRelease.blockers).toContain("LIVE_RAG_EVAL_REQUIRED");
+          expect(await risks()).toEqual([[], []]);
+
+          atMinutes(slot, 1);
+          for (const pub of pubs) {
+            await dispatchPublication(worker, pub.id);
+            await dispatchPublication(worker, pub.id);
+          }
+          expect((await daily.publications()).map((p) => p.status)).toEqual([
+            "scheduled_remote",
+            "scheduled_remote",
+          ]);
+          expect(await dispatchJobs()).toHaveLength(2);
+        },
+      );
+
+      it("blocks the same corpus change when a source for the post loses public-use rights", async () => {
+        const { pubs, slot } = await released();
+        provider.liveIndex = false;
+        provider.indexCorpusChanged = true;
+        const pub = pubs[0]!;
+        const { owner } = daily.project;
+        await daily.h.run(async (tx) => {
+          const pack = (await list(tx, owner, "evidence")).find((row) => row.id === pub.evidenceId)!;
+          const { facts, items } = data(pack);
+          const sourceId = [...facts, ...items][0]!.sourceId;
+          const source = (await list(tx, owner, "sources")).find((row) => row.id === sourceId)!;
+          await update(tx, owner, source, { ...data(source), publicUse: false });
+        });
+
+        atMinutes(slot, 1);
+        await dispatchPublication(daily.h.worker(), pub.id);
+        expect((await daily.publications()).find((p) => p.id === pub.id)).toMatchObject({
+          status: "blocked_dependency",
+          blockers: expect.arrayContaining(["EVIDENCE_INVALID"]),
+        });
+        expect(await dispatchJobs()).toHaveLength(0);
+      });
+
+      it("keeps the index gate for a booking without an owner decision", async () => {
+        const { pubs, slot } = await released();
+        const { owner } = daily.project;
+        const pub = pubs[0]!;
+        await daily.h.run(async (tx) => {
+          const row = (await list(tx, owner, "publications")).find((r) => r.id === pub.id)!;
+          const { ownerReleasedAt: _at, ownerReleasedBy: _by, ...booking } = data(row);
+          await update(tx, owner, row, booking);
+          const approval = (await list(tx, owner, "approvals")).find((r) => data(r).contentId === pub.contentId)!;
+          await update(tx, owner, approval, { ...data(approval), status: "expired" });
+        });
+        provider.liveIndex = false;
+        provider.indexCorpusChanged = true;
+
+        atMinutes(slot, 1);
+        await dispatchPublication(daily.h.worker(), pub.id);
+        expect((await daily.publications()).find((p) => p.id === pub.id)).toMatchObject({
+          status: "blocked_dependency",
+          blockers: expect.arrayContaining(["LIVE_RAG_EVAL_REQUIRED"]),
+        });
+        expect(await dispatchJobs()).toHaveLength(0);
       });
 
       it("a content invalidation before the slot is a risk carrying CONTENT_CHANGED", async () => {

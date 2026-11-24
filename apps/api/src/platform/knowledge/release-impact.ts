@@ -15,18 +15,16 @@ export type ReleaseImpact = {
   enabled: boolean;
   /** Whether the live index evaluation is valid now (the gate is open). */
   gateValid: boolean;
-  /** How many released records a corpus change would block, in every enabled module. */
+  /** How many released records a knowledge change could affect across enabled modules. */
   count: number;
   /** Their details, only from modules the member may use. */
   dependents: ReleaseGateDependent[];
 };
 
 /**
- * What a corpus change would block now (released-post watch, C): the
- * released records of every enabled module that depend on the valid live
- * index evaluation. Empty while the gate is already invalid (they are blocked
- * anyway). `count` covers every enabled module; `dependents` only those whose
- * module the member has a role in. Read-only.
+ * What a knowledge change could affect while the live index gate is valid.
+ * The count covers every enabled module. Details are visible only for modules
+ * where the member has a role. Read-only.
  */
 export async function releaseImpact(
   tx: DbTx,

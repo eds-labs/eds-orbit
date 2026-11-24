@@ -548,7 +548,12 @@ export async function validateActiveIndexEvaluation(
   else {
     try {
       await currentManifest(tx, s, index);
-    } catch {
+    } catch (error) {
+      if (
+        !(error instanceof KnowledgeError) ||
+        error.code !== "INDEX_CORPUS_CHANGED"
+      )
+        throw error;
       reasons.push("INDEX_EVALUATION_CORPUS_CHANGED");
     }
     const ids = Array.isArray(e.budgetReservationIds)

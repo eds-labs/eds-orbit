@@ -53,8 +53,8 @@ const factInput = z
   .strict();
 const shared = { module: "knowledge" };
 /**
- * The released posts this change will block, read before it runs (afterwards
- * the gate is already invalid); only when there are any. Advisory: a failure
+ * Released posts this change could affect, read before it runs and only
+ * reported when there are any. Advisory: a failure
  * is logged and leaves the field out, never the change. A delegated work
  * order (a configured agent or an MCP task) gets the count only: its result
  * surfaces in task summaries that other members may read.

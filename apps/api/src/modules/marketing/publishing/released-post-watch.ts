@@ -89,12 +89,12 @@ export async function postRisk(
     // a package approval must still be `approved` and unexpired at the slot
     // (APPROVAL_REQUIRED unless a veto window releases the post). The later
     // hand-off preflight (publisher.ts) ignores approvals only because the
-    // claim has consumed them. `approvalPublicationId` matters only for a
-    // publication that is `sending`, never a candidate here.
+    // claim has consumed them. The publication id also lets preflight verify
+    // the exact owner's booking if the knowledge corpus has changed.
     const checked = await preflight(tx, scope, d.contentId, {
       test: false,
       at: c.slotAt,
-      approvalPublicationId: c.id,
+      publicationId: c.id,
       ...(d.vetoDeadline && d.assignmentRunId
         ? {
             veto: {
@@ -184,7 +184,7 @@ export function postTitle(content: Record<string, any>): string {
 }
 
 /**
- * Every released post a corpus change would block (released-post watch, C):
+ * Every released post that a knowledge change could affect:
  * the watch's selection without its horizon and cap, intended posts only (a
  * blocked one is refused anyway). Names, slots and channel names; never the
  * text. Read-only.

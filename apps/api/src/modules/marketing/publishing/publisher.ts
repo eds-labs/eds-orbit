@@ -154,7 +154,7 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
         const checked = await preflight(tx, scope, p.contentId, {
           test: false,
           ignoreApproval: true,
-          approvalPublicationId: pubId,
+          publicationId: pubId,
           // An assignment post keeps its veto window up to the send (R53).
           ...(v.vetoDeadline && v.assignmentRunId
             ? {
@@ -291,7 +291,7 @@ async function dispatchThroughSocial(scope: Scope, pubId: string) {
       const checked = await preflight(tx, scope, p.contentId, {
         test: false,
         ignoreApproval: true,
-        approvalPublicationId: pubId,
+        publicationId: pubId,
         ...(v.vetoDeadline && v.assignmentRunId
           ? {
               veto: {
