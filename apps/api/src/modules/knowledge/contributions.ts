@@ -1,3 +1,4 @@
+import { indexRefreshScheduler } from "./index-refresh.ts";
 import { runAnalysis } from "./workspace.ts";
 import { knowledgeMcpTools, knowledgeMcpActions } from "./mcp-tools.ts";
 import {
@@ -28,6 +29,7 @@ export const knowledgeContributions: ModuleContributions = {
     },
   ],
   actions: knowledgeActions,
+  scheduler: indexRefreshScheduler,
   // The live RAG evaluation over MCP (docs/MCP_PROJECT_ADMINISTRATION.md).
   tools: [...knowledgeMcpTools, ...knowledgeEvaluationTools],
   actionTypes: { ...knowledgeMcpActions, ...knowledgeEvaluationActionTypes },

@@ -146,7 +146,7 @@ describe("module contributions", () => {
   });
 
   it("runs the marketing sweep before the platform's source sync, as before", () => {
-    expect(registeredSchedulers()).toHaveLength(2);
+    expect(registeredSchedulers()).toHaveLength(3);
   });
 
   it("leaves the same kinds out of the project export as before (WP1.8)", () => {
@@ -171,6 +171,8 @@ describe("module contributions", () => {
       "knowledge_github_config",
       "knowledge_github_connections",
       "knowledge_github_oauth",
+      "knowledge_index_refresh_runs",
+      "knowledge_index_refresh_settings",
       "knowledge_previews",
       "knowledge_profiles",
       "knowledge_proposals",
@@ -341,6 +343,7 @@ describe("module contributions", () => {
       "knowledge-import-commit",
       "knowledge-import-preview",
       "knowledge-import-retry",
+      "knowledge-index-automation",
       "knowledge-profile-save",
       "knowledge-proposal-decide",
       "knowledge-proposal-edit",
@@ -364,6 +367,7 @@ describe("module contributions", () => {
       "project-settings",
       "publish",
       "reconcile",
+      "refresh-knowledge-index",
       "reject-content",
       "render",
       "resolve-exception",

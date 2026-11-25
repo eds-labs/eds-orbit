@@ -1,3 +1,4 @@
+import { assertManagedIndexRefresh } from "./index-refresh-authority.ts";
 import { z } from "zod";
 import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
@@ -139,6 +140,7 @@ async function runIndexEvaluationBatch(
     const request = await entity(tx, s, "index_evaluations", requestId),
       r = data(request);
     if (r.status === "completed") return null;
+    await assertManagedIndexRefresh(tx, s, r.indexId);
     const index = await assertIndexCorpusCurrent(tx, s, r.indexId);
     const project = await tx.project.findUniqueOrThrow({
       where: { id: s.projectId },

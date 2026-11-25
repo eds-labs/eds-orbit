@@ -98,6 +98,13 @@ import {
   queueIndexEvaluation,
   runIndexEvaluation,
 } from "../src/platform/knowledge/index-evaluation.ts";
+import {
+  indexRefreshScheduler,
+  indexRefreshStatus,
+  setIndexRefreshAutomation,
+  startIndexRefresh,
+} from "../src/modules/knowledge/index-refresh.ts";
+import { assertManagedIndexRefresh } from "../src/platform/knowledge/index-refresh-authority.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
@@ -2423,6 +2430,148 @@ describe.skipIf(!enabled)(
       };
       return { index, input };
     }
+    async function refreshCorpus() {
+      await run(async (tx) => {
+        for (let i = 0; i < 16; i++)
+          await ingest(tx, s, {
+            sourceId,
+            externalId: `refresh-${i}`,
+            title: `Refresh fixture ${i}`,
+            text: `Synthetic guidance for the managed index refresh fixture, passage number ${i}.`,
+            mimeType: "text/plain",
+            language: "en",
+          });
+      });
+    }
+
+    const refreshConsent = { confirmPaidProviderUse: true };
+    const refreshTime = (minutes = 0) =>
+      new Date(Date.now() + minutes * 60_000);
+    const refreshSweep = (at = refreshTime()) =>
+      run((tx) => indexRefreshScheduler.sweep(tx, s, at));
+    const refreshStatus = () => run((tx) => indexRefreshStatus(tx, s));
+    const jobFor = (resourceId: string, topic: string) =>
+      run(async (tx) =>
+        (await list(tx, s, "jobs")).find((job) => {
+          const j = data(job);
+          return (
+            j.resourceId === resourceId &&
+            j.topic === topic &&
+            j.status === "queued"
+          );
+        }),
+      );
+
+    it.each([true, false])("refreshes once and only activates a passed live evaluation (passing=%s)", async (passing) => {
+      await refreshCorpus();
+      await expect(run((tx) => startIndexRefresh(tx, s, {}))).rejects.toThrow();
+      expect((await refreshSweep()).queued).toBe(0);
+      expect(await refreshStatus()).toEqual({ autoEnabled: false, run: null });
+      const [first, second] = await Promise.all([
+        run((tx) => startIndexRefresh(tx, s, refreshConsent)),
+        run((tx) => startIndexRefresh(tx, s, refreshConsent)),
+      ]);
+      expect(first).toEqual(second);
+      const indexId = first.indexId as string;
+      const prior = await run((tx) => getActiveIndex(tx, s));
+      const job = (await jobFor(indexId, "reindex"))!;
+      provider.embed.mockImplementation(async (texts: string[]) => ({
+        ...embedding(),
+        vectors: texts.map(() => embedding().vectors[0]!),
+      }));
+      await buildIndexBatch(s, indexId, job.id);
+      const beforeQuestions = await refreshSweep();
+      expect(beforeQuestions.queued).toBe(0);
+      expect((await refreshStatus()).run?.stage).toBe("embedding");
+      await run((tx) =>
+        update(tx, s, job, { ...data(job), status: "succeeded" }),
+      );
+      await refreshSweep();
+      expect((await refreshStatus()).run?.stage).toBe("questions");
+
+      // Use a deterministic generated set as the handoff fixture; the build,
+      // live evaluation, paid receipts and activation use the real services.
+      const result = await run(async (tx) => {
+        const [record] = await list(tx, s, "index_evaluations");
+        const index = await tx.knowledgeIndex.findUniqueOrThrow({
+          where: { id: indexId },
+        });
+        const expected = (index.manifest as { chunkId: string }[])[passing ? 0 : 12]!.chunkId;
+        return update(tx, s, record!, {
+          ...data(record),
+          status: "review",
+          cases: Array.from({ length: 60 }, (_, i) => ({
+            id: `case-${i}`,
+            query: `Synthetic test question number ${i}`,
+            expectedChunkIds: i < 48 ? [expected] : [],
+            forbiddenChunkIds: i < 48 ? [] : [expected],
+            language: i < 48 ? "en" : "de",
+            purpose: "internal",
+          })),
+        });
+      });
+      await refreshSweep();
+      expect((await refreshStatus()).run?.stage).toBe("evaluation");
+      expect((await run((tx) => getActiveIndex(tx, s))).id).toBe(prior.id);
+      for (let i = 0; i < 2; i++) {
+        const check = (await jobFor(result.id, "index_evaluation"))!;
+        await runIndexEvaluation(s, result.id, check.id);
+        await run((tx) =>
+          update(tx, s, check, { ...data(check), status: "succeeded" }),
+        );
+      }
+      await refreshSweep();
+      if (!passing) {
+        expect((await refreshStatus()).run).toMatchObject({
+          status: "failed",
+          errorCode: "INDEX_REFRESH_CHECK_NOT_PASSED",
+        });
+        expect((await run((tx) => getActiveIndex(tx, s))).id).toBe(prior.id);
+        return;
+      }
+      expect((await refreshStatus()).run?.status).toBe("completed");
+      expect(
+        await run((tx) => validateActiveIndexEvaluation(tx, s)),
+      ).toMatchObject({
+        valid: true,
+        indexId,
+      });
+      expect(
+        await run((tx) => startIndexRefresh(tx, s, refreshConsent)),
+      ).toEqual({ status: "current" });
+    });
+
+    it("starts automatically only after opt-in, stops on failure and never retries the same corpus", async () => {
+      await refreshCorpus();
+      expect((await refreshSweep(refreshTime(3))).queued).toBe(0);
+      await run((tx) =>
+        setIndexRefreshAutomation(tx, s, { enabled: true, ...refreshConsent }),
+      );
+      expect((await refreshSweep(refreshTime(3))).queued).toBe(1);
+      expect((await refreshSweep(refreshTime(4))).queued).toBe(0);
+      const { run: activeRun } = await refreshStatus();
+      const prior = await run((tx) => getActiveIndex(tx, s));
+      const job = (await jobFor(activeRun!.indexId, "reindex"))!;
+      await run((tx) =>
+        update(tx, s, job, {
+          ...data(job),
+          status: "blocked_dependency",
+          error: "REINDEX_COST_UNKNOWN",
+        }),
+      );
+      await refreshSweep(refreshTime(5));
+      expect((await refreshStatus()).run).toMatchObject({
+        status: "failed",
+        errorCode: "REINDEX_COST_UNKNOWN",
+      });
+      expect((await refreshSweep(refreshTime(20))).queued).toBe(0);
+      await expect(
+        run((tx) => assertManagedIndexRefresh(tx, s, activeRun!.indexId)),
+      ).rejects.toThrow("INDEX_REFRESH_STOPPED");
+      expect((await run((tx) => getActiveIndex(tx, s))).id).toBe(prior.id);
+      expect(provider.embed).not.toHaveBeenCalled();
+    });
+
     it("index evaluation rejects insufficient negative coverage and denied budget before query transmission", async () => {
       const { input } = await evaluationFixture();
       await expect(

@@ -1,3 +1,4 @@
+import { setIndexRefreshAutomation, startIndexRefresh } from "./index-refresh.ts";
 import { queueIndexBuild } from "./evaluation-tools.ts";
 import {
   saveProfile,
@@ -177,6 +178,12 @@ export const knowledgeActions: Record<string, ActionHandler> = {
       schemas.id.parse(input.factId),
       z.number().int().positive().parse(input.version),
     ),
+  ),
+  "refresh-knowledge-index": sharedTransaction((tx, { scope, input }) =>
+    startIndexRefresh(tx, scope, input),
+  ),
+  "knowledge-index-automation": sharedTransaction((tx, { scope, input }) =>
+    setIndexRefreshAutomation(tx, scope, input),
   ),
   "evaluate-index": sharedTransaction((tx, { scope, input }) =>
     queueIndexEvaluation(tx, scope, indexEvaluationRequest.parse(input)),

@@ -50,6 +50,16 @@ export const knowledgeModule: ServerModule = {
       kind: "index_evaluations",
       description: "Index generation evaluation runs",
     },
+    {
+      kind: "knowledge_index_refresh_settings",
+      description: "Owner authorization for index refresh",
+      exported: false,
+    },
+    {
+      kind: "knowledge_index_refresh_runs",
+      description: "Index refresh progress and outcome",
+      exported: false,
+    },
     { kind: "knowledge_imports", description: "Bulk knowledge import jobs" },
   ],
   tables: [

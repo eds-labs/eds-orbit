@@ -43,6 +43,11 @@ async function manifest(tx: DbTx, s: Scope) {
     ManifestItem[]
   >`SELECT c.id AS "chunkId",v.id AS "versionId",d."sourceId",v."sourceGeneration",c."chunkHash" FROM "KnowledgeChunk" c JOIN "DocumentVersion" v ON v.id=c."documentVersionId" JOIN "KnowledgeDocument" d ON d.id=v."documentId" JOIN "Entity" s ON s.id=d."sourceId" WHERE c."workspaceId"=${s.workspaceId}::uuid AND c."projectId"=${s.projectId}::uuid AND v.state='active' AND d."activeVersionId"=v.id AND s.kind='sources' AND s.data->>'status'='active' AND s.data->>'modelUse'='true' AND s.data->>'authority' IN ('official','website','research') AND v."sourceGeneration"=(s.data->>'generation')::int ORDER BY c.id`;
 }
+export async function currentIndexCorpus(tx: DbTx, s: Scope) {
+  const rows = await manifest(tx, s);
+  return { hash: hash(JSON.stringify(rows)), chunks: rows.length };
+}
+
 async function auditIndex(
   tx: DbTx,
   s: Scope,

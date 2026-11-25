@@ -1,3 +1,4 @@
+import { assertManagedIndexRefresh } from "./index-refresh-authority.ts";
 import { z } from "zod";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -363,6 +364,8 @@ async function generateBatch(s: Scope, requestId: string, _jobId: string) {
         const current = data(
           await entity(tx, scope, "index_evaluations", requestId),
         );
+        await assertManagedIndexRefresh(tx, scope, current.indexId);
+        await assertIndexCorpusCurrent(tx, scope, current.indexId);
         if (
           current.status !== "generating" ||
           current.batchesDone !== batchIndex

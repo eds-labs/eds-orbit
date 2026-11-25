@@ -1,3 +1,5 @@
+import { refreshRunWhere } from "../../platform/knowledge/index-refresh-authority.ts";
+import { indexRefreshStatus } from "./index-refresh.ts";
 import { z } from "zod";
 import { workspaceSummary, owner, getKnowledgePreview } from "./workspace.ts";
 import { githubStatus, githubRepositories, finishGithub } from "./github.ts";
@@ -154,19 +156,27 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
     return scoped(scope.workspaceId, projectId, async (tx) => {
       const generations = await describeIndexGenerations(tx, scope);
       const evaluations = await latestEvaluations(tx, scope);
+      const managed = await tx.entity.findMany({
+        where: refreshRunWhere(scope),
+        select: { data: true },
+      });
+      const managedIds = new Set(managed.map((run) => data(run).indexId));
       // The release gate's verdict on the active generation (LIVE_RAG_EVAL_REQUIRED).
       const live = await validateActiveIndexEvaluation(tx, scope);
       const items = [];
       for (const g of generations)
         items.push({
           ...g,
+          managedRefresh:
+            managedIds.has(g.id) && !["active", "retired"].includes(g.state),
           ...(g.id === live.indexId
             ? { liveEvaluation: { valid: live.valid, reasons: live.reasons } }
             : {}),
           // The newest evaluation record, with the review list while in review.
           evaluationRun: evaluations.get(g.id) ?? null,
           // What generating the test questions would cost (micro-USD).
-          ...(["ready_for_evaluation", "evaluation_failed"].includes(g.phase)
+          ...(!managedIds.has(g.id) &&
+          ["ready_for_evaluation", "evaluation_failed"].includes(g.phase)
             ? {
                 evaluationSetEstimateMicros: await evaluationSetEstimate(
                   tx,
@@ -176,7 +186,7 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
               }
             : {}),
         });
-      return { items };
+      return { items, refresh: await indexRefreshStatus(tx, scope) };
     });
   });
 };

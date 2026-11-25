@@ -1164,6 +1164,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
   await expect(
     page.getByRole("heading", { name: "Search index" }),
   ).toBeVisible();
+  await page.getByText("Manual index controls", { exact: true }).click();
   await page.getByRole("button", { name: "Prepare new generation" }).click();
   // Preparing is free; the paid embedding is a separate step.
   await expect(page.getByRole("dialog")).toContainText(
@@ -1196,6 +1197,48 @@ test("editable local brief, private community groups, calendar blocks and owner 
     path: testInfo.outputPath("operator-mobile.png"),
     fullPage: true,
   });
+});
+
+test("managed index refresh starts in one click and automation is a separate opt-in", async ({ page }) => {
+  await login(page);
+  const projectId = await newProject(page, "EDS Labs · managed index refresh");
+  const indexId = "71e75f94-2c6c-443e-811d-e8a2b9833432";
+  let started = false;
+  let autoEnabled = false;
+  await page.route(`**/api/projects/${projectId}/indexes?*`, (route) =>
+    route.fulfill({
+      json: {
+        items: [],
+        refresh: {
+          autoEnabled,
+          run: started ? { indexId, status: "running", stage: "embedding", errorCode: null } : null,
+        },
+      },
+    }),
+  );
+  await page.route(`**/projects/${projectId}/actions/refresh-knowledge-index`, (route) => {
+    expect(route.request().postDataJSON()).toEqual({ confirmPaidProviderUse: true });
+    started = true;
+    return route.fulfill({ json: { indexId, status: "running" } });
+  });
+  await page.route(`**/projects/${projectId}/actions/knowledge-index-automation`, (route) => {
+    expect(route.request().postDataJSON()).toEqual({ enabled: true, confirmPaidProviderUse: true });
+    autoEnabled = true;
+    return route.fulfill({ json: { enabled: true } });
+  });
+  await open(page, projectId, "knowledge");
+  await knowledgeDiagnostic(page, "Health");
+  await expect(page.getByText("Automatic refresh is off.")).toBeVisible();
+  const refresh = page.getByRole("button", { name: "Refresh index now" });
+  await refresh.click();
+  await expect(page.getByText("Embedding passages…")).toBeVisible();
+  await expect(refresh).toBeDisabled();
+  await page.getByRole("button", { name: "Enable automatic refresh" }).click();
+  const dialogue = page.getByRole("dialog", { name: "Enable automatic refresh" });
+  await expect(dialogue).toContainText("configured AI providers");
+  expect(autoEnabled).toBe(false);
+  await dialogue.getByRole("button", { name: "Enable automatic refresh" }).click();
+  await expect(page.getByText("Automatic refresh is on.")).toBeVisible();
 });
 
 test("index activation is offered only after evaluation", async ({ page }) => {

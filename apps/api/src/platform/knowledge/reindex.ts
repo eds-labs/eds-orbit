@@ -1,3 +1,4 @@
+import { assertManagedIndexRefresh } from "./index-refresh-authority.ts";
 import { scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
@@ -42,6 +43,7 @@ async function buildIndexBatchTraced(
     scope.workspaceId,
     scope.projectId,
     async (tx) => {
+      await assertManagedIndexRefresh(tx, scope, indexId);
       const index = await assertIndexCorpusCurrent(tx, scope, indexId);
       const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
@@ -131,6 +133,7 @@ async function buildIndexBatchTraced(
       Date.now() >= Date.parse(data(p).endAt)
     )
       throw new DomainError("PAID_MANDATE_CHANGED");
+    await assertManagedIndexRefresh(tx, scope, indexId);
     await assertIndexCorpusCurrent(tx, scope, indexId);
     for (const item of prepared.batch) {
       const source = sourceData(

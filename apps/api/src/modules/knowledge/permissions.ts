@@ -24,6 +24,8 @@ export const knowledgeActionPermissions = actionPermissions("knowledge", {
     "build-index",
     "embed-document",
     "evaluate-index",
+    "refresh-knowledge-index",
+    "knowledge-index-automation",
     "generate-evaluation-set",
     "knowledge-content-accept",
     "knowledge-import-commit",

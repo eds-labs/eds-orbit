@@ -56,12 +56,41 @@ export type IndexGeneration = {
   phase?: string;
   evaluationRun?: EvaluationRun | null;
   evaluationSetEstimateMicros?: number | null;
+  managedRefresh?: boolean;
   /** Only on the active generation: whether its live check still allows releases. */
   liveEvaluation?: { valid: boolean; reasons: string[] } | null;
 };
 
+type IndexRefresh = {
+  autoEnabled: boolean;
+  run: {
+    indexId: string;
+    status: string;
+    stage: string;
+    errorCode: string | null;
+  } | null;
+};
+
 const TEXT = {
   en: {
+    refresh: "Refresh index now",
+    refreshTerms:
+      "Orbit sends eligible passages and generated questions to the configured AI providers using this project's AI budget. It activates the new index after the check passes.",
+    autoEnable: "Enable automatic refresh",
+    autoDisable: "Disable automatic refresh",
+    autoInfo:
+      "Automatically refresh when Orbit needs a new live check. Disabling this setting leaves an already started refresh running.",
+    autoOn: "Automatic refresh is on.",
+    autoOff: "Automatic refresh is off.",
+    refreshCurrent: "The active index has a valid live check.",
+    refreshProgress: {
+      embedding: "Embedding passages…",
+      questions: "Writing test questions…",
+      evaluation: "Running the live check…",
+    } as Record<string, string>,
+    refreshDone: "The check passed and the new index is active.",
+    refreshFailed: "Index refresh stopped.",
+    advanced: "Manual index controls",
     title: "Search index",
     intro:
       "Orbit finds knowledge through an index of text passages. A new index generation is built and checked with test questions before it replaces the current one.",
@@ -99,7 +128,7 @@ const TEXT = {
         "No valid check: the cost receipts of its check are incomplete.",
     } as Record<string, string>,
     liveInvalidAction:
-      "Posts cannot be released until a newly checked generation is active: prepare, embed, check and activate one.",
+      "Refresh the index to restore the live check for post releases.",
     build: "Embed next batch",
     check: "Check",
     review: "Review questions",
@@ -163,6 +192,9 @@ const TEXT = {
     confirm: "I confirm this change",
     apply: "Apply",
     errors: {
+      INDEX_REFRESH_CHECK_NOT_PASSED:
+        "The new index did not pass the live check. The previous index is still active.",
+      INDEX_REFRESH_TIMEOUT: "The refresh timed out. Start it again.",
       INDEX_NOT_READY_FOR_EVALUATION:
         "This generation is not ready for a check.",
       EVALUATION_IN_PROGRESS: "A check of this generation is already running.",
@@ -184,6 +216,24 @@ const TEXT = {
     budget: "The project's AI budget or spending approval does not allow it.",
   },
   de: {
+    refresh: "Index jetzt aktualisieren",
+    refreshTerms:
+      "Orbit sendet freigegebene Wissensabschnitte und erzeugte Testfragen an die konfigurierten KI-Anbieter. Der Lauf nutzt das KI-Budget des Projekts. Nach bestandener Prüfung aktiviert Orbit den neuen Index.",
+    autoEnable: "Automatische Aktualisierung einschalten",
+    autoDisable: "Automatische Aktualisierung ausschalten",
+    autoInfo:
+      "Orbit startet automatisch, wenn eine neue Live-Prüfung nötig ist. Das Ausschalten lässt einen bereits gestarteten Lauf zu Ende laufen.",
+    autoOn: "Automatische Aktualisierung ist an.",
+    autoOff: "Automatische Aktualisierung ist aus.",
+    refreshCurrent: "Der aktive Index hat eine gültige Live-Prüfung.",
+    refreshProgress: {
+      embedding: "Wissensabschnitte werden eingebettet …",
+      questions: "Testfragen werden geschrieben …",
+      evaluation: "Die Live-Prüfung läuft …",
+    } as Record<string, string>,
+    refreshDone: "Die Prüfung ist bestanden und der neue Index ist aktiv.",
+    refreshFailed: "Die Indexaktualisierung wurde gestoppt.",
+    advanced: "Index manuell verwalten",
     title: "Suchindex",
     intro:
       "Orbit findet Wissen über einen Index aus Textabschnitten. Eine neue Index-Generation wird aufgebaut und mit Testfragen geprüft, bevor sie die aktuelle ersetzt.",
@@ -223,7 +273,7 @@ const TEXT = {
         "Die Kostenbelege ihrer Prüfung sind unvollständig.",
     } as Record<string, string>,
     liveInvalidAction:
-      "Beiträge können erst wieder freigegeben werden, wenn eine neu geprüfte Generation aktiv ist: vorbereiten, einbetten, prüfen und aktivieren.",
+      "Beiträge können erst wieder freigegeben werden, wenn eine neu geprüfte Generation aktiv ist.",
     build: "Nächstes Paket einbetten",
     check: "Prüfen",
     review: "Fragen durchsehen",
@@ -289,6 +339,10 @@ const TEXT = {
     confirm: "Ich bestätige diese Änderung",
     apply: "Übernehmen",
     errors: {
+      INDEX_REFRESH_CHECK_NOT_PASSED:
+        "Der neue Index hat die Live-Prüfung nicht bestanden. Der bisherige Index bleibt aktiv.",
+      INDEX_REFRESH_TIMEOUT:
+        "Die Aktualisierung hat zu lange gedauert. Starte sie erneut.",
       INDEX_NOT_READY_FOR_EVALUATION:
         "Diese Generation ist nicht bereit für eine Prüfung.",
       EVALUATION_IN_PROGRESS:
@@ -378,25 +432,38 @@ function steps(i: IndexGeneration, text: Text) {
 export function IndexManagement() {
   const { project, revision, isOwner, refresh, locale, t } = useWorkspace();
   const text = TEXT[locale];
-  const indexes = useResource<{ items: IndexGeneration[] }>(
-    collectionPath(project.id, `indexes?revision=${revision}`),
-  );
+  const indexes = useResource<{
+    items: IndexGeneration[];
+    refresh?: IndexRefresh;
+  }>(collectionPath(project.id, `indexes?revision=${revision}`));
   const [mode, setMode] = useState<Mode | null>(null);
+  const [enablingAuto, setEnablingAuto] = useState(false);
   const [selected, setSelected] = useState<IndexGeneration | null>(null);
   const mutation = useMutation(() => {
     refresh();
     indexes.refresh();
   });
-  const busy = (indexes.data?.items ?? []).some((i) =>
-    BUSY.includes(i.evaluationRun?.status ?? ""),
-  );
+  const indexRefresh = indexes.data?.refresh;
+  const refreshRun = indexRefresh?.run;
+  const refreshing = refreshRun?.status === "running";
+  const current =
+    indexes.data?.items?.find((i) => i.state === "active")?.liveEvaluation
+      ?.valid === true;
+  const busy =
+    refreshing ||
+    indexRefresh?.autoEnabled ||
+    (indexes.data?.items ?? []).some((i) =>
+      BUSY.includes(i.evaluationRun?.status ?? ""),
+    );
   const reload = indexes.refresh;
+  const polling =
+    refreshing || (indexRefresh?.autoEnabled && !current) ? 5000 : 30000;
   // Questions and the check run in the background: look again while they do.
   useEffect(() => {
     if (!busy) return;
-    const timer = setInterval(() => reload(), 5000);
+    const timer = setInterval(() => reload(), polling);
     return () => clearInterval(timer);
-  }, [busy, reload]);
+  }, [busy, reload, polling]);
   const open = (m: Mode, generation: IndexGeneration | null) => {
     setSelected(generation);
     setMode(m);
@@ -414,20 +481,102 @@ export function IndexManagement() {
           <h2>{text.title}</h2>
           <p>{text.intro}</p>
         </div>
-        {isOwner && (
+      </div>
+      <ResourceError error={indexes.error} retry={indexes.refresh} />
+      {isOwner && indexRefresh && (
+        <div className="data-row">
+          <div>
+            <p>{text.refreshTerms}</p>
+            <p role="status">
+              {refreshing
+                ? text.refreshProgress[refreshRun.stage]
+                : refreshRun?.status === "failed" && !current
+                  ? `${text.refreshFailed} ${reason(text, refreshRun.errorCode)}`
+                  : current
+                    ? refreshRun?.status === "completed"
+                      ? text.refreshDone
+                      : text.refreshCurrent
+                    : null}
+            </p>
+            <p>{indexRefresh.autoEnabled ? text.autoOn : text.autoOff}</p>
+            {error && !mode && !enablingAuto && (
+              <Alert kind="error">{error}</Alert>
+            )}
+          </div>
+          <div className="form-actions">
+            <Button
+              disabled={current || refreshing || mutation.pending}
+              onClick={() =>
+                mutation.run(() =>
+                  action(project.id, "refresh-knowledge-index", {
+                    confirmPaidProviderUse: true,
+                  }),
+                )
+              }
+            >
+              {text.refresh}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={mutation.pending}
+              onClick={() => {
+                mutation.clear();
+                if (indexRefresh.autoEnabled)
+                  return mutation.run(() =>
+                    action(project.id, "knowledge-index-automation", {
+                      enabled: false,
+                    }),
+                  );
+                setEnablingAuto(true);
+              }}
+            >
+              {indexRefresh.autoEnabled ? text.autoDisable : text.autoEnable}
+            </Button>
+          </div>
+        </div>
+      )}
+      {isOwner && (
+        <details>
+          <summary>{text.advanced}</summary>
           <Button variant="outline" onClick={() => open("begin", null)}>
             {text.prepare}
           </Button>
-        )}
-      </div>
-      <ResourceError error={indexes.error} retry={indexes.refresh} />
+        </details>
+      )}
+      {enablingAuto && (
+        <Modal title={text.autoEnable} onClose={() => setEnablingAuto(false)}>
+          <Alert>
+            {text.autoInfo} {text.refreshTerms}
+          </Alert>
+          {error && <Alert kind="error">{error}</Alert>}
+          <div className="form-actions">
+            <Button
+              disabled={mutation.pending}
+              onClick={() =>
+                mutation
+                  .run(() =>
+                    action(project.id, "knowledge-index-automation", {
+                      enabled: true,
+                      confirmPaidProviderUse: true,
+                    }),
+                  )
+                  .then((result) => {
+                    if (result) setEnablingAuto(false);
+                  })
+              }
+            >
+              {text.autoEnable}
+            </Button>
+          </div>
+        </Modal>
+      )}
       {indexes.loading ? (
         <Loading />
       ) : (
         (indexes.data?.items || []).map((i) => {
           const run = i.evaluationRun;
           const phase = i.phase ?? i.state;
-          const offered = steps(i, text);
+          const offered = i.managedRefresh ? [] : steps(i, text);
           // The active generation whose live check no longer allows releases.
           const invalid =
             phase === "active" && i.liveEvaluation?.valid === false;
