@@ -355,8 +355,9 @@ services:
     restart: unless-stopped
     init: true
     read_only: true
+    # The PostgreSQL dump and the encrypted archive coexist until upload verification.
     tmpfs:
-      - /tmp:size=512m,mode=1777
+      - /tmp:size=4g,mode=1777
     security_opt:
       - no-new-privileges:true
     cap_drop:

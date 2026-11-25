@@ -16,6 +16,10 @@ Alle wesentlichen Änderungen am Codex Project Framework werden in dieser Datei 
 - Owner-approved fallback to the OpenAI tier when the Claude budget stops a call (off by default)
 - Settings → AI: providers, models, budget, usage and costs
 
+### Fixed
+
+- Give encrypted Orbit backups 4 GiB of temporary space for the database dump and its encrypted copy.
+
 ## [0.1.0-rc.1] - 2026-09-17
 
 ### Added
