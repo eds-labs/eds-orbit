@@ -4,7 +4,7 @@ import type { SocialPlatform } from "../api";
 // platforms' own rules (modules/social/posts/validation.ts): X's weighting
 // is approximated here by counting each link as 23 characters.
 
-const LIMITS = { x: 280, xLong: 25_000, instagram: 2_200, facebook: 63_206, telegram: 4_096, telegramCaption: 1_024 };
+const LIMITS = { x: 280, xLong: 25_000, instagram: 2_200, facebook: 63_206, telegram: 4_096, telegramCaption: 1_024, linkedin: 3_000, youtube: 5_000, tiktok: 2_200 };
 const URL = /https?:\/\/\S+/g;
 
 export function textHint(

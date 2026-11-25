@@ -44,6 +44,7 @@ const TYPES: Record<string, ((bytes: Uint8Array) => boolean) | null> = {
  * e-mail attachments do not accept: `allowedFileTypes()` leaves them out.
  */
 const STORAGE_ONLY_TYPES: Record<string, (bytes: Uint8Array) => boolean> = {
+  "video/mp4": (b) => starts(b.subarray(4), [0x66, 0x74, 0x79, 0x70]),
   "application/xml": (b) =>
     starts(
       b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf ? b.subarray(3) : b,
@@ -57,6 +58,7 @@ const starts = (bytes: Uint8Array, signature: number[]) =>
 
 /** The extensions a name of each type may end in; the first is appended otherwise. */
 const EXTENSIONS: Record<string, string[]> = {
+  "video/mp4": [".mp4"],
   "image/png": [".png"],
   "image/jpeg": [".jpg", ".jpeg"],
   "image/gif": [".gif"],
@@ -223,6 +225,7 @@ export async function storeFile(
   if (input.bytes.byteLength > config.maxBytes)
     throw new DomainError("FILE_TOO_LARGE", 413);
   const mime = input.mime.split(";")[0]!.trim().toLowerCase();
+  if (mime === "video/mp4" && (input.moduleId !== "social" || config.backend !== "s3")) throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
   const check = TYPE_CHECKS[mime];
   if (check === undefined || (check && !check(input.bytes)))
     throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);

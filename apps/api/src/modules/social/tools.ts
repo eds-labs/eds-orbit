@@ -47,7 +47,7 @@ const STATUSES = [
   "canceled",
   "archived",
 ] as const;
-const PLATFORMS = ["x", "facebook", "instagram", "telegram"] as const;
+const PLATFORMS = ["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"] as const;
 const ORIGINS = ["manual", "marketing", "mcp", "assistant", "legacy_postiz"] as const;
 const CALENDAR_DAYS = 31;
 // A UUID with a short pattern: id puts a long one into every tool
@@ -57,6 +57,7 @@ const CALENDAR_ITEMS = 200;
 
 /** The longest text a post on the account may have. */
 function textLimit(platform: string, settings: { xLongPosts: boolean }) {
+  if (platform === "linkedin" || platform === "youtube" || platform === "tiktok") return TEXT_LIMITS[platform];
   if (platform === "x") return settings.xLongPosts ? TEXT_LIMITS.xLong : TEXT_LIMITS.x;
   return TEXT_LIMITS[platform as "instagram" | "facebook" | "telegram"];
 }

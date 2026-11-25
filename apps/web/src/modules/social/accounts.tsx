@@ -10,6 +10,7 @@ import { AppLink } from "@/platform/ui/app-link";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { AppHint, HiddenAppsNote, appsToHide, readHiddenApps, writeHiddenApps, type SocialApp } from "./app-hints";
 import { PostizMigration } from "./legacy";
+import { channelCopy } from "./channels-copy";
 import { socialPath, type SocialAccount, type SocialAccounts, type SocialAppReadiness, type SocialMediaList } from "./api";
 import { accountMessage, socialText } from "./labels";
 
@@ -184,7 +185,10 @@ function AccountRow({
   const [testText, setTestText] = useState(t.verifyDefault);
   const [testImage, setTestImage] = useState("");
   // Instagram posts nothing without an image: its test post needs one.
-  const needsImage = account.platform === "instagram";
+  const youtube = account.platform === "youtube";
+  const tiktok = account.platform === "tiktok";
+  const channel = channelCopy(locale);
+  const needsImage = account.platform === "instagram" || youtube;
   const library = useResource<SocialMediaList>(verifying && needsImage ? socialPath(project.id, "/media") : null);
   const verifyId = `social-verify-${account.id}`;
   return (
@@ -222,7 +226,7 @@ function AccountRow({
       </div>
       {owner && account.status !== "disabled" && (
         <div>
-          <Button
+          {(!tiktok || account.settings.tiktokInbox) && <Button
             variant="outline"
             size="sm"
             onClick={async () => {
@@ -239,11 +243,11 @@ function AccountRow({
             }}
           >
             {t.check}
-          </Button>{" "}
+          </Button>}{" "}
           <Button variant="outline" size="sm" onClick={() => onDisconnect(account)}>
             {t.disconnect}
           </Button>
-          {account.status === "active" && account.capability !== "write_verified" && (
+          {!tiktok && account.status === "active" && account.capability !== "write_verified" && (
             <>
               {" "}
               <Button variant="outline" size="sm" onClick={() => setVerifying((open) => !open)}>
@@ -273,7 +277,7 @@ function AccountRow({
               </Field>
               {needsImage && (
                 <Field>
-                  <FieldLabel htmlFor={`${verifyId}-image`}>{t.verifyImage}</FieldLabel>
+                  <FieldLabel htmlFor={`${verifyId}-image`}>{youtube ? channel.verifyVideo : t.verifyImage}</FieldLabel>
                   <select
                     id={`${verifyId}-image`}
                     className="input"
@@ -282,7 +286,7 @@ function AccountRow({
                     onChange={(e) => setTestImage(e.target.value)}
                   >
                     <option value="">—</option>
-                    {(library.data?.items ?? []).map((m) => (
+                    {(library.data?.items ?? []).filter((m) => youtube === (m.mime === "video/mp4")).map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.name}
                       </option>
@@ -290,7 +294,7 @@ function AccountRow({
                   </select>
                 </Field>
               )}
-              <p className="field-hint">{t.verifyNote}</p>
+              <p className="field-hint">{youtube ? channel.verifyPrivate : t.verifyNote}</p>
               <Button type="submit" size="sm">
                 {t.verifySend}
               </Button>
@@ -314,7 +318,11 @@ export function AccountsView() {
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [telegram, setTelegram] = useState(false);
   const [disconnecting, setDisconnecting] = useState<SocialAccount | null>(null);
-  const [connecting, setConnecting] = useState<"x" | "meta" | null>(null);
+  const [connecting, setConnecting] = useState<"x" | "meta" | "linkedin" | "youtube" | "tiktok" | null>(null);
+  const [tiktokOpen, setTiktokOpen] = useState(false);
+  const [tiktokHandle, setTiktokHandle] = useState("");
+  const [tiktokBusy, setTiktokBusy] = useState(false);
+  const channel = channelCopy(locale);
   // Coming back from the provider (browser back, a phone app handing the
   // tab back) restores this page from the cache: the buttons work again.
   useEffect(() => {
@@ -345,7 +353,7 @@ export function AccountsView() {
     (connected ? { kind: "success" as const, text: t.connected(Number(connected) || 0) } : null) ??
     (failed ? { kind: "error" as const, text: accountMessage(failed, locale) } : null);
 
-  const connect = async (app: "x" | "meta") => {
+  const connect = async (app: "x" | "meta" | "linkedin" | "youtube" | "tiktok") => {
     // A message from an earlier action would read as the answer to this one.
     setMessage(null);
     setConnecting(app);
@@ -376,6 +384,14 @@ export function AccountsView() {
               .map((app) => (
                 <Fragment key={app}>{connectButton(app)} </Fragment>
               ))}
+            {(["linkedin", "youtube", "tiktok"] as const).map((app) => readiness?.[app] === "ready" && (
+              <Button key={app} onClick={() => connect(app)} disabled={connecting !== null}>
+                {connecting === app ? channel.opening : app === "linkedin" ? channel.connectLinkedIn : app === "youtube" ? channel.connectYouTube : channel.connectTikTok}
+              </Button>
+            ))}
+            <Button variant="outline" onClick={() => setTiktokOpen((open) => !open)}>
+              {channel.addTikTok}
+            </Button>
             <Button variant="outline" onClick={() => setTelegram((open) => !open)}>
               {t.addTelegram}
             </Button>
@@ -398,6 +414,32 @@ export function AccountsView() {
           ))}
       {hiddenApps.length > 0 && (
         <HiddenAppsNote apps={hiddenApps} locale={locale} onShow={() => changeHidden(new Set())} />
+      )}
+      {isOwner && tiktokOpen && (
+        <form onSubmit={async (event) => {
+          event.preventDefault();
+          setTiktokBusy(true);
+          try {
+            await api(socialPath(project.id, "/accounts/tiktok"), {
+              method: "POST",
+              body: JSON.stringify({ handle: tiktokHandle }),
+            });
+            setTiktokOpen(false);
+            setTiktokHandle("");
+            setMessage({ kind: "success", text: t.connected(1) });
+            accounts.refresh();
+          } catch (error) {
+            setMessage({ kind: "error", text: accountMessage(codeOf(error), locale) });
+          } finally {
+            setTiktokBusy(false);
+          }
+        }}>
+          <Field>
+            <FieldLabel htmlFor="social-tiktok-handle">{channel.tiktokHandle}</FieldLabel>
+            <Input id="social-tiktok-handle" required maxLength={25} value={tiktokHandle} onChange={(e) => setTiktokHandle(e.target.value)} />
+          </Field>
+          <Button type="submit" disabled={tiktokBusy}>{t.save}</Button>
+        </form>
       )}
       {isOwner && telegram && (
         <TelegramChannelForm

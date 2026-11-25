@@ -249,3 +249,23 @@ The four media tools use the library above (`media/library.ts`, `media/mcp-tools
 | Facebook | Posts of an app in development mode are visible only to app members; Page photos JPEG/PNG ≤ 4 MB; unpublished photos expire after about 24 h; text up to 63,206 characters | S5, S5b |
 | X | `POST /2/tweets` 100 per 15 min per user; images ≤ 5 MB, up to 4 per post; refresh tokens rotate; text 280 weighted characters, X Premium accounts up to 25,000 (the SDK 0.5.0 `prepareTarget` knows only 280, so long posts are checked by Orbit and S5 calls the adapter's `publishTarget` directly) | S4, S5 |
 | Telegram | ~20 messages per minute in a group or channel (documented for groups), 1 per second per chat; photo uploads ≤ 10 MB, captions ≤ 1024 characters | S5 |
+
+## EDS Labs company channels
+
+Use the Social accounts view in the EDS-Labs project. Configure each approved developer app as a system connection and grant it for `social_oauth` to the organization, then only to the intended project. The system connection pins the target identity. Its account row and OAuth credentials remain project scoped.
+
+| Provider | System connection | Target and prerequisites |
+|---|---|---|
+| LinkedIn | `social.app.linkedin` | Numeric Company Page ID and an approved Company Page administrator. Enable Community Management with `r_organization_admin` and `w_organization_social`. The adapter uses LinkedIn Marketing API version `202610`. |
+| YouTube | `social.app.youtube` | Canonical `UC…` channel ID. Enable YouTube Data API v3 and configure Google web OAuth with `youtube.upload` and `youtube.readonly`. During consent, select the channel's identity. |
+| TikTok inbox | `social.app.tiktok` | Optional. Set the official `@username` and obtain approval for `user.info.basic`, `user.info.profile` and `video.upload`. |
+
+The corresponding OAuth redirect paths end in `/api/social/oauth/callback/linkedin`, `/youtube` and `/tiktok` on the Orbit web origin. Keep credentials in central connections. Configure `ORBIT_SOCIAL_PLATFORMS` one provider at a time when ready. The `tiktok` flag only enables uploading a draft to the inbox with an authorized account.
+
+- LinkedIn posts text with up to one image. Verify writing with an approved Company Page post before enabling routine publication.
+- Upload pilot videos from Social → Media with S3-compatible file storage enabled. One vertical H.264 MP4 per variant, up to 60 seconds and the smaller of 20 MiB and `FILES_MAX_BYTES`. Orbit checks container metadata, stores the bytes encrypted and serves authorized downloads. Drive and MCP uploads still accept images only.
+- YouTube requires explicit title, description (the variant text), visibility and made-for-kids choice. Verify writing with a private video first. Orbit resumes the same upload session after a confirmed partial transfer and reads video processing before confirming publication.
+- Add a TikTok profile manually to use the download workflow. At the approved slot, download the video and copy its caption from the post. A configured inbox connection can send the video and leaves publication to the account owner. Record the canonical video URL from the same profile to close the publication in Orbit.
+- For EDS-Labs Marketing, use the [project migration runbook](SOCIAL_POSTIZ_MIGRATION.md#per-project) for the existing X mapping, history mirror, drain and switch. Select LinkedIn by its native account after write verification and channel-policy approval. YouTube and TikTok use Social's composer.
+
+Treat provider OAuth and outbound writes as high-risk. The main threats are token substitution, cross-project asset access and duplicate publication after transport failure. Grant only the expected identities, keep approved media and options bound to the existing package hash, and reconcile unknown outcomes before considering a new approval. For rollout, validate the additive migration in isolated PostgreSQL and obtain production approval for the schema hash, credentials and provider flags. To stop outbound writes during a problem, disable the affected platform in the installation allowlist and reconcile any already accepted upload before re-enabling the flag. TikTok can continue using its manual workflow.

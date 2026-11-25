@@ -15,18 +15,23 @@ export type MediaFacts = {
   jpegWidth: number;
   jpegHeight: number;
   jpegSize: number;
+  durationMs?: number | null;
 };
 export type Rendition = "original" | "jpeg";
 
 const MiB = 1024 * 1024;
 const FACEBOOK_MAX_BYTES = 4_000_000;
 const EPSILON = 0.001;
-const MAX_ITEMS: Record<SocialPlatform, number> = { instagram: 10, x: 4, facebook: 10, telegram: 10 };
+const MAX_ITEMS: Record<SocialPlatform, number> = { instagram: 10, x: 4, facebook: 10, telegram: 10, linkedin: 1, youtube: 1, tiktok: 1 };
 
 const ratioOf = (width: number, height: number) => width / height;
 
 export function renditionFor(media: MediaFacts, platform: SocialPlatform): Rendition {
   switch (platform) {
+    case "linkedin":
+    case "youtube":
+    case "tiktok":
+      return "original";
     case "instagram":
       return "jpeg";
     case "x":
@@ -59,7 +64,11 @@ export function mediaIssues(media: MediaFacts, platform: SocialPlatform): string
 
 /** Issues of several images in one post, each code once. */
 export function carouselIssues(items: MediaFacts[], platform: SocialPlatform): string[] {
-  const issues = new Set(items.flatMap((item) => mediaIssues(item, platform)));
+  const wantsVideo = platform === "youtube" || platform === "tiktok";
+  const issues = new Set(items.flatMap((item) => {
+    if (wantsVideo) return item.mime === "video/mp4" ? [] : ["SOCIAL_VIDEO_REQUIRED"];
+    return item.mime === "video/mp4" ? ["SOCIAL_VIDEO_NOT_AVAILABLE"] : mediaIssues(item, platform);
+  }));
   if (items.length > MAX_ITEMS[platform]) issues.add("SOCIAL_MEDIA_TOO_MANY");
   if (platform === "instagram" && items.length > 1) {
     const first = ratioOf(items[0]!.jpegWidth, items[0]!.jpegHeight);

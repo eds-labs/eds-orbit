@@ -6,8 +6,9 @@ import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { authorize, PROJECT_OWN } from "../../../platform/tenancy/permissions.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
+import { TIKTOK_MANUAL, tiktokPostUrl } from "../accounts/tiktok.ts";
 import { markWriteVerified } from "../accounts/verify-write.ts";
-import { lockPublication, postOfPublication } from "./claim.ts";
+import { lockPublication, markOutcomeUnknown, postOfPublication } from "./claim.ts";
 import { sendMode } from "./gates.ts";
 import { LATE_WINDOW_MS, notAfterOriginSlot } from "./lateness.ts";
 import { publicationView, type PublicationView } from "./publication-view.ts";
@@ -50,7 +51,13 @@ export async function cancelDelivery(tx: DbTx, scope: Scope, postId: string): Pr
     const pub = await lockPublication(tx, scope, listed.id);
     const waiting =
       pub.status === "pending" || pub.status === "blocked" || (pub.status === "failed" && pub.retryDisposition === "after-delay" && pub.nextAttemptAt);
-    if (waiting) {
+    if (waiting && pub.status === "failed" &&
+        (pub.providerState as { youtubeUploadUncertain?: boolean }).youtubeUploadUncertain === true) {
+      await cancelJobs(tx, scope, pub.id);
+      await markOutcomeUnknown(tx, scope, pub.id, "SOCIAL_PROVIDER_UNKNOWN");
+      await enqueue(tx, scope, RECONCILE, pub.id, `social-reconcile:${pub.id}:unknown`, new Date(), { attempt: "unknown" });
+      tooLate++;
+    } else if (waiting) {
       await tx.socialPublication.update({
         where: { id: pub.id },
         data: { status: "canceled", nextAttemptAt: null, fence: null, version: { increment: 1 } },
@@ -152,9 +159,14 @@ export async function resolvePublication(tx: DbTx, scope: Scope, id: string, raw
   const pub = await lockPublication(tx, scope, id);
   // History mirrored from another system is not Social's to settle (S10).
   if (pub.legacyEntityId) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
-  if (pub.status !== "outcome_unknown") throw new DomainError("SOCIAL_PUBLICATION_NOT_UNKNOWN", 409);
+  const manual = pub.status === "blocked" && pub.blockedCode === TIKTOK_MANUAL;
+  if (pub.status !== "outcome_unknown" && !manual) throw new DomainError("SOCIAL_PUBLICATION_NOT_UNKNOWN", 409);
   if (pub.version !== input.version) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   const published = input.resolution === "published_confirmed";
+  const account = await tx.socialAccount.findFirstOrThrow({ where: { id: pub.accountId, projectId: scope.projectId } });
+  const link = account.platform === "tiktok" && published ? tiktokPostUrl(input.permalink, account.handle) : null;
+  if (account.platform === "tiktok" && published && !link)
+    throw new DomainError("SOCIAL_TIKTOK_PERMALINK_INVALID", 422);
   const row = await tx.socialPublication.update({
     where: { id },
     data: published
@@ -163,7 +175,8 @@ export async function resolvePublication(tx: DbTx, scope: Scope, id: string, raw
           resolution: input.resolution,
           resolvedBy: scope.userId,
           publishedAt: new Date(),
-          ...(input.permalink ? { permalink: input.permalink } : {}),
+          ...(link ? { permalink: link.permalink, externalPostId: link.id } : input.permalink ? { permalink: input.permalink } : {}),
+          ...(manual ? { blockedCode: null } : {}),
           version: { increment: 1 },
         }
       : {
@@ -173,11 +186,11 @@ export async function resolvePublication(tx: DbTx, scope: Scope, id: string, raw
           retryDisposition: "never",
           nextAttemptAt: null,
           lastErrorCode: "SOCIAL_NOT_PUBLISHED",
+          ...(manual ? { blockedCode: null } : {}),
           version: { increment: 1 },
         },
   });
   const post = await postOfPublication(tx, scope, pub.variantId);
-  const account = await tx.socialAccount.findFirstOrThrow({ where: { id: pub.accountId, projectId: scope.projectId } });
   await audit(tx, scope, "social.publication.resolved", id, { resolution: input.resolution });
   await refreshPostStatus(tx, scope, post.id);
   // A test post the owner confirms counts like a clear send (P3).

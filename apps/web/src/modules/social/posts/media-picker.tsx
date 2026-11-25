@@ -60,9 +60,9 @@ export function MediaPicker({
     .filter((id) => !library.some((m) => m.id === id))
     .map((id) => {
       const ref = known.find((k) => k.mediaId === id);
-      return { id, name: t.removedFromLibrary, altText: ref?.altText ?? null };
+      return { id, name: t.removedFromLibrary, mime: ref?.mime, altText: ref?.altText ?? null };
     });
-  const items = [...library.map((m) => ({ id: m.id, name: m.name, altText: m.altText })), ...gone];
+  const items = [...library.map((m) => ({ id: m.id, name: m.name, mime: m.mime, altText: m.altText })), ...gone];
   const pick = async (file: DriveFile) => {
     if (drivePickBlock(file, selected.length, locale)) return;
     setPending(file.id);
@@ -95,12 +95,12 @@ export function MediaPicker({
                   }
                 />{" "}
                 <label htmlFor={id}>
-                  <img
+                  {m.mime !== "video/mp4" && <img
                     src={`/api${socialPath(projectId, `/media/${m.id}/content?rendition=jpeg`)}`}
                     alt={m.altText ?? m.name}
                     width={64}
                     loading="lazy"
-                  />{" "}
+                  /> }{" "}
                   {position >= 0 ? `${position + 1}. ` : ""}
                   {m.name}
                 </label>

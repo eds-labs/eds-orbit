@@ -43,7 +43,7 @@ export async function sendInputOf(scope: Scope, id: string): Promise<{ input: Se
     media.push({
       fileId,
       bytes,
-      mime: file.mime === "image/png" ? "image/png" : "image/jpeg",
+      mime: file.mime === "video/mp4" ? "video/mp4" : file.mime === "image/png" ? "image/png" : "image/jpeg",
       width: original ? asset.width : asset.jpegWidth,
       height: original ? asset.height : asset.jpegHeight,
       publicUrl: platform === "instagram" && publicMediaEnabled() ? publicMediaUrl(scope, { publicationId: id, fileId }) : null,
@@ -120,6 +120,7 @@ async function aiLabelBlock(
   if (!aiImageLabelsEnabled() || !media.length) return null;
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     for (const m of media) {
+      if (m.mime === "video/mp4") continue;
       const bytes = Buffer.from(m.bytes.buffer, m.bytes.byteOffset, m.bytes.byteLength);
       try {
         await assertAiLabelPublishable(tx, scope, {

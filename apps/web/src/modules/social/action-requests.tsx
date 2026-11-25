@@ -3,6 +3,7 @@ import type { ActionRequestRenderer } from "@/platform/assistant/extensions";
 import { Button } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { socialPath, type MediaRef, type SocialPlatform } from "./api";
+import { channelCopy } from "./channels-copy";
 import { socialText } from "./labels";
 
 // A social post request in Decisions (ADR 0020, S4): the owner sees
@@ -14,7 +15,7 @@ type Operation = {
   at: string | null;
   local: string | null;
   timeZone: string;
-  variants: Array<{ accountId: string; platform: SocialPlatform; handle: string; body: string; media: MediaRef[] }>;
+  variants: Array<{ accountId: string; platform: SocialPlatform; handle: string; body: string; media: MediaRef[]; options?: Record<string, unknown> }>;
 };
 
 const TEXT = {
@@ -65,6 +66,7 @@ const renderer: ActionRequestRenderer = {
     const op = item.summary.operation as Operation;
     const t = TEXT[de ? "de" : "en"];
     const platforms = socialText(de ? "de" : "en").platform;
+    const channel = channelCopy(de ? "de" : "en");
     return (
       <article className="action-request">
         <h3>{op.mode === "at" ? t.at : t.now}</h3>
@@ -75,7 +77,18 @@ const renderer: ActionRequestRenderer = {
               {v.handle} <span className="field-hint">{platforms[v.platform]}</span>
             </h4>
             <blockquote style={{ whiteSpace: "pre-wrap" }}>{v.body}</blockquote>
-            {v.media.map((m) => (
+            {v.platform === "youtube" && v.options && (
+              <dl>
+                <dt>{channel.videoTitle}</dt><dd>{String(v.options.title ?? "")}</dd>
+                <dt>{channel.visibility}</dt>
+                <dd>{v.options.privacy === "private" ? channel.private : v.options.privacy === "unlisted" ? channel.unlisted : channel.public}</dd>
+                <dt>{channel.audience}</dt><dd>{v.options.madeForKids === true ? channel.madeForKids : channel.generalAudience}</dd>
+              </dl>
+            )}
+            {v.media.map((m) => m.mime === "video/mp4" ? (
+              <video key={m.mediaId} width={120} controls preload="none" aria-label={platforms[v.platform]}
+                src={`/api${socialPath(project.id, `/media/${m.mediaId}/content`)}`} />
+            ) : (
               <img
                 key={m.mediaId}
                 src={`/api${socialPath(project.id, `/media/${m.mediaId}/content?rendition=jpeg`)}`}
@@ -108,15 +121,19 @@ const verifyRenderer: ActionRequestRenderer = {
     const op = item.summary.operation as { platform: SocialPlatform; handle: string; text: string; mediaId?: string | null };
     const t = TEXT[de ? "de" : "en"];
     const platforms = socialText(de ? "de" : "en").platform;
+    const channel = channelCopy(de ? "de" : "en");
     return (
       <article className="action-request">
         <h3>{t.verifyTitle(op.handle)}</h3>
         <p className="field-hint">{platforms[op.platform]}</p>
         <blockquote style={{ whiteSpace: "pre-wrap" }}>{op.text}</blockquote>
-        {op.mediaId && (
+        {op.mediaId && (op.platform === "youtube" ? (
+          <video controls width={120} preload="none" aria-label={channel.verifyVideo}
+            src={`/api${socialPath(project.id, `/media/${op.mediaId}/content`)}`} />
+        ) : (
           <img src={`/api${socialPath(project.id, `/media/${op.mediaId}/content?rendition=jpeg`)}`} alt="" width={120} loading="lazy" />
-        )}
-        <p className="panel-note">{t.verifyNote}</p>
+        ))}
+        <p className="panel-note">{op.platform === "youtube" ? channel.verifyPrivate : t.verifyNote}</p>
         <div className="form-actions">
           <Button disabled={pending} onClick={() => decide("approve")}>
             {t.approve}
@@ -155,6 +172,7 @@ const draftRenderer: ActionRequestRenderer = {
     };
     const t = TEXT[de ? "de" : "en"];
     const platforms = socialText(de ? "de" : "en").platform;
+    const channel = channelCopy(de ? "de" : "en");
     const current = op.current;
     return (
       <article className="action-request">

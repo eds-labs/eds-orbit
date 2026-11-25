@@ -39,6 +39,8 @@ export type SocialAccountRef = {
   platformEnabled: boolean;
 };
 
+const composerOnly = ["youtube", "tiktok"];
+
 const SOCIAL_CHANNEL = /^social:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /** Whether a Marketing channel reference is a native `social:<accountId>` one. */
@@ -52,7 +54,7 @@ export async function socialChannels(
   scope: Scope,
 ): Promise<Array<{ id: string; platform: SocialPlatform; handle: string }>> {
   const rows = await tx.socialAccount.findMany({
-    where: { projectId: scope.projectId, status: { not: "disabled" } },
+    where: { projectId: scope.projectId, status: { not: "disabled" }, platform: { notIn: composerOnly } },
     select: { id: true, platform: true, handle: true },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
@@ -102,6 +104,7 @@ export async function accountForChannel(tx: DbTx, scope: Scope, channel: string)
     where: {
       projectId: scope.projectId,
       status: { not: "disabled" },
+      platform: { notIn: composerOnly },
       ...(direct ? { id: direct[1]!.toLowerCase() } : { legacyPostizIntegrationId: channel }),
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],

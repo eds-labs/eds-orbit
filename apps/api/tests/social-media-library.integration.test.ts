@@ -75,11 +75,11 @@ describe.skipIf(!enabled)("social media library", () => {
     expect(view.mime).toBe("image/jpeg");
   });
 
-  it("refuses video and other types, and broken images, without storing anything", async () => {
+  it("refuses video on database storage, other types and broken images without storing anything", async () => {
     const before = (await files()).length;
     await expect(uploadMedia(p.editor, { bytes: Buffer.from("video"), mime: "video/mp4" })).rejects.toMatchObject({
-      code: "SOCIAL_VIDEO_NOT_AVAILABLE",
-      status: 415,
+      code: "SOCIAL_VIDEO_STORAGE_REQUIRED",
+      status: 409,
     });
     await expect(uploadMedia(p.editor, { bytes: Buffer.from("%PDF-1.4"), mime: "application/pdf" })).rejects.toMatchObject({
       code: "SOCIAL_MEDIA_TYPE",

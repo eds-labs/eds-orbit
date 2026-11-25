@@ -52,12 +52,13 @@ const approvalPayload = z
         z
           .object({
             accountId: z.uuid(),
-            platform: z.enum(["x", "facebook", "instagram", "telegram"]),
+            platform: z.enum(["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"]),
             handle: z.string(),
             body: z.string(),
+            options: z.record(z.string(), z.unknown()).optional(),
             media: z.array(
               z
-                .object({ mediaId: z.uuid(), width: z.int(), height: z.int(), altText: z.string().nullable() })
+                .object({ mediaId: z.uuid(), width: z.int(), height: z.int(), altText: z.string().nullable(), mime: z.literal("video/mp4").optional() })
                 .strict(),
             ),
           })
@@ -244,6 +245,7 @@ async function submit(
       handle: v.handle,
       body: v.body,
       media: v.media,
+      ...(v.platform === "youtube" ? { options: v.options } : {}),
     })),
   };
   const request = await createActionRequest(tx, scope, {
@@ -369,6 +371,7 @@ export async function proposedSchedule(
       handle: v.handle,
       body: v.body,
       media: v.media,
+      ...(v.platform === "youtube" ? { options: v.options } : {}),
     })),
   };
 }

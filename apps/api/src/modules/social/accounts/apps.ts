@@ -8,7 +8,8 @@ import { DomainError } from "../../../shared.ts";
 // secret is a JSON object, granted to an organization and then a project
 // for the purpose "social_oauth" and the module "social".
 
-export type SocialApp = "meta" | "x";
+export const SOCIAL_APPS = ["meta", "x", "linkedin", "youtube", "tiktok"] as const;
+export type SocialApp = (typeof SOCIAL_APPS)[number];
 
 export const metaAppSecret = z
   .object({
@@ -23,6 +24,15 @@ export const xAppSecret = z
     clientSecret: z.string().min(10).max(200),
   })
   .strict();
+const channelApp = z.object({
+  clientId: z.string().min(6).max(255),
+  clientSecret: z.string().min(6).max(255),
+  targetId: z.string(),
+}).strict();
+export const linkedinAppSecret = channelApp.extend({ targetId: z.string().regex(/^\d{1,16}$/) });
+export const youtubeAppSecret = channelApp.extend({ targetId: z.string().regex(/^UC[\w-]{22}$/) });
+export const tiktokAppSecret = channelApp.extend({ targetId: z.string().regex(/^@[A-Za-z0-9_.]{1,24}$/) });
+export type ChannelAppSecret = z.infer<typeof channelApp>;
 export type MetaAppSecret = z.infer<typeof metaAppSecret>;
 export type XAppSecret = z.infer<typeof xAppSecret>;
 
@@ -42,7 +52,7 @@ export async function appCredentials(
   tx: DbTx,
   scope: Scope,
   app: SocialApp,
-): Promise<{ connectionId: string; meta?: MetaAppSecret; x?: XAppSecret }> {
+): Promise<{ connectionId: string; meta?: MetaAppSecret; x?: XAppSecret; channel?: ChannelAppSecret }> {
   const granted = await resolveConnection(tx, scope, {
     provider: `social.app.${app}`,
     purpose: "social_oauth",
@@ -52,9 +62,10 @@ export async function appCredentials(
   const raw = await connectionSecret(tx, granted.connection.id);
   if (raw === null) throw new DomainError("SOCIAL_APP_NOT_GRANTED", 409);
   const connectionId = granted.connection.id;
-  return app === "meta"
-    ? { connectionId, meta: parseAppSecret(metaAppSecret, raw) }
-    : { connectionId, x: parseAppSecret(xAppSecret, raw) };
+  if (app === "meta") return { connectionId, meta: parseAppSecret(metaAppSecret, raw) };
+  if (app === "x") return { connectionId, x: parseAppSecret(xAppSecret, raw) };
+  const schemas = { linkedin: linkedinAppSecret, youtube: youtubeAppSecret, tiktok: tiktokAppSecret };
+  return { connectionId, channel: parseAppSecret(schemas[app], raw) };
 }
 
 /**
@@ -95,7 +106,7 @@ async function grantedToOrganization(scope: Scope, app: SocialApp): Promise<bool
  * the accounts page can say what is missing before the owner taps
  * "connect". Only the state leaves this function, never the secret.
  */
-export async function appReadiness(tx: DbTx, scope: Scope): Promise<Record<SocialApp, AppReadiness>> {
+export async function appReadiness(tx: DbTx, scope: Scope): Promise<Record<"x" | "meta", AppReadiness> & Partial<Record<"linkedin" | "youtube" | "tiktok", AppReadiness>>> {
   const state = async (app: SocialApp): Promise<AppReadiness> => {
     try {
       await appCredentials(tx, scope, app);
@@ -105,7 +116,17 @@ export async function appReadiness(tx: DbTx, scope: Scope): Promise<Record<Socia
       return (await grantedToOrganization(scope, app)) ? "project_not_granted" : "not_granted";
     }
   };
-  return { x: await state("x"), meta: await state("meta") };
+  const x = await state("x");
+  const meta = await state("meta");
+  const linkedin = await state("linkedin");
+  const youtube = await state("youtube");
+  const tiktok = await state("tiktok");
+  return {
+    x, meta,
+    ...(linkedin !== "not_granted" ? { linkedin } : {}),
+    ...(youtube !== "not_granted" ? { youtube } : {}),
+    ...(tiktok !== "not_granted" ? { tiktok } : {}),
+  };
 }
 
 /** The OAuth callback URL a developer app must list, on the web origin. */

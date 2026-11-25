@@ -91,8 +91,12 @@ export async function reconcilePublication(scope: Scope, id: string, attempt: nu
       });
       return;
     }
-    if (result.kind === "published" || result.kind === "failed" || result.kind === "unknown") {
+    if (result.kind === "published" || result.kind === "failed" || result.kind === "unknown" || result.kind === "manual") {
       await finishPublication(tx, scope, id, current.fence!, result, "live");
+      return;
+    }
+    if (attempt >= RECONCILE_MAX && typeof (current.providerState as { tiktokInboxId?: unknown }).tiktokInboxId === "string") {
+      await finishPublication(tx, scope, id, current.fence!, { kind: "manual" }, "live");
       return;
     }
     if (attempt >= RECONCILE_MAX) {

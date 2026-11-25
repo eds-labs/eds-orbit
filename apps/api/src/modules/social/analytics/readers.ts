@@ -112,6 +112,9 @@ export async function readMetrics(
       ], deadline);
     case "x":
       return xReads(token, externalIds, deadline);
+    case "linkedin":
+    case "youtube":
+    case "tiktok":
     case "telegram":
       return { values: new Map(), calls: 0 };
   }

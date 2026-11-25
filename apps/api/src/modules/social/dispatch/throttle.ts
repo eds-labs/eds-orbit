@@ -17,6 +17,9 @@ export const THROTTLE: Record<SocialPlatform, Array<{ window: Window; max: numbe
   ],
   instagram: [{ window: "day", max: 50 }],
   facebook: [{ window: "hour", max: 30 }],
+  linkedin: [{ window: "day", max: 15 }],
+  youtube: [{ window: "day", max: 10 }],
+  tiktok: [],
 };
 const LENGTH: Record<Window, number> = { minute: 60_000, hour: 3_600_000, day: 86_400_000 };
 

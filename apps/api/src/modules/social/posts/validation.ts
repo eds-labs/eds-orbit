@@ -39,13 +39,25 @@ export const TEXT_LIMITS = {
   facebook: 63_206,
   telegram: 4_096,
   telegramCaption: 1_024,
+  linkedin: 3_000,
+  youtube: 5_000,
+  tiktok: 2_200,
 } as const;
+
+export const youtubeOptions = z.object({
+  title: z.string().trim().min(1).max(100).refine((text) => !/[<>]/.test(text)),
+  privacy: z.enum(["private", "unlisted", "public"]),
+  madeForKids: z.boolean(),
+}).strict();
 
 const OPTIONS: Record<SocialPlatform, z.ZodType> = {
   x: z.object({ replySettings: z.enum(["everyone", "following", "mentionedUsers"]).optional() }).strict(),
   telegram: z.object({ disableLinkPreview: z.boolean().optional(), silent: z.boolean().optional() }).strict(),
   instagram: z.object({}).strict(),
   facebook: z.object({}).strict(),
+  linkedin: z.object({}).strict(),
+  youtube: youtubeOptions,
+  tiktok: z.object({}).strict(),
 };
 
 /** The options a variant of the platform may carry. */
@@ -97,6 +109,11 @@ function textIssues(v: VariantFacts): string[] {
         ? ["SOCIAL_TEXT_TOO_LONG"]
         : [];
     }
+    case "youtube":
+      return Buffer.byteLength(text, "utf8") > TEXT_LIMITS.youtube || /[<>]/.test(text) ? ["SOCIAL_TEXT_TOO_LONG"] : [];
+    case "linkedin":
+    case "tiktok":
+      return length(text) > TEXT_LIMITS[platform] ? ["SOCIAL_TEXT_TOO_LONG"] : [];
     case "facebook":
       return length(text) > TEXT_LIMITS.facebook ? ["SOCIAL_TEXT_TOO_LONG"] : [];
     case "telegram":
@@ -117,17 +134,18 @@ export function validateVariant(v: VariantFacts, ctx?: ValidationContext): Valid
   const issues: ValidationIssue[] = [];
   const error = (code: string, path?: string) => issues.push({ code, severity: "error", ...(path ? { path } : {}) });
   if (v.account.status !== "active") error("SOCIAL_ACCOUNT_NOT_ACTIVE");
-  if (!v.body.trim() && !v.media.length) error("SOCIAL_TEXT_EMPTY", "body");
+  if (!v.body.trim() && (!v.media.length || v.account.platform === "linkedin")) error("SOCIAL_TEXT_EMPTY", "body");
   else for (const code of textIssues(v)) error(code, "body");
+  if ((v.account.platform === "youtube" || v.account.platform === "tiktok") && !v.media.length) error("SOCIAL_VIDEO_REQUIRED", "media");
   if (v.account.platform === "instagram" && !v.media.length) error("SOCIAL_MEDIA_REQUIRED", "media");
   if (v.media.length) for (const code of carouselIssues(v.media, v.account.platform)) error(code, "media");
   // ADR 0028: an AI image goes out only with its visible label, in any mode.
   if (v.media.some((m) => m.aiLabelMissing)) error("SOCIAL_AI_LABEL_MISSING", "media");
   if (!OPTIONS[v.account.platform].safeParse(v.options).success) error("SOCIAL_OPTIONS_INVALID", "options");
   const live = ctx?.mode === "live";
-  if (live && !ctx.platformEnabled) error("SOCIAL_PLATFORM_NOT_AVAILABLE");
+  if (live && v.account.platform !== "tiktok" && !ctx.platformEnabled) error("SOCIAL_PLATFORM_NOT_AVAILABLE");
   if (live && v.account.platform === "instagram" && !ctx.publicMedia) error("SOCIAL_MEDIA_PUBLIC_REQUIRED", "media");
-  if (v.account.status === "active" && v.account.capability !== "write_verified")
+  if (v.account.platform !== "tiktok" && v.account.status === "active" && v.account.capability !== "write_verified")
     issues.push({ code: "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED", severity: live ? "error" : "warning" });
   return issues;
 }

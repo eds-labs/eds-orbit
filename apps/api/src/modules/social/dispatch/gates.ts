@@ -12,7 +12,7 @@ import type { ValidationContext } from "../posts/validation.ts";
 export type SendMode = "live" | "test";
 
 /** The platforms Orbit can send to. */
-export const SENDABLE_PLATFORMS: readonly SocialPlatform[] = ["x", "facebook", "instagram", "telegram"];
+export const SENDABLE_PLATFORMS: readonly SocialPlatform[] = ["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"];
 
 export const sendMode = (): SendMode => (liveSending() ? "live" : "test");
 

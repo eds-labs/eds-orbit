@@ -91,15 +91,15 @@ describe("social media library view (ADR 0020, S3)", () => {
     expect(html).toContain("banner.png");
     expect(html).toContain(`src="/api/projects/p1/social/media/m1/content?rendition=jpeg"`);
     expect(html).toContain(`alt="Launch banner"`);
-    expect(html).not.toContain("Upload image");
+    expect(html).not.toContain("Upload media");
     expect(buttons(html)).toHaveLength(0);
   });
 
   it("offers editors the upload and the image actions", () => {
     answers["/social/media"] = { items: [item()] };
     const html = render(<MediaView />, { access: "editor" });
-    expect(html).toContain("Upload image");
-    expect(html).toContain('accept="image/png,image/jpeg,image/webp"');
+    expect(html).toContain("Upload media");
+    expect(html).toContain('accept="image/png,image/jpeg,image/webp,video/mp4"');
     // The file input stays reachable by keyboard: visually hidden, not `hidden`.
     const input = html.match(/<input[^>]*type="file"[^>]*>/)?.[0] ?? "";
     expect(input).toContain('class="sr-only"');

@@ -1,7 +1,8 @@
 "use client";
 import type { Dispatch } from "react";
-import { Button, Field, FieldLabel, Tabs, Textarea } from "@/components/ui/primitives";
+import { Button, Field, FieldLabel, Input, Tabs, Textarea } from "@/components/ui/primitives";
 import type { MediaRef, SocialAccount, SocialMedia, ValidationIssue } from "../api";
+import { channelCopy } from "../channels-copy";
 import { issueMessage, socialText } from "../labels";
 import { effectiveMedia, effectiveText, type EditorAction, type EditorState } from "./editor-state";
 import { MediaPicker } from "./media-picker";
@@ -41,10 +42,12 @@ export function VariantTabs({
 }) {
   const all = socialText(locale);
   const t = all.posts;
+  const channel = channelCopy(locale);
   const selected = state.accounts.flatMap((id) => accounts.filter((a) => a.id === id));
   const alt = (ids: string[]) =>
     ids.map((mediaId) => ({
       mediaId,
+      mime: library.find((m) => m.id === mediaId)?.mime ?? known.find((k) => k.mediaId === mediaId)?.mime,
       altText: library.find((m) => m.id === mediaId)?.altText ?? known.find((k) => k.mediaId === mediaId)?.altText ?? null,
     }));
   // An account with errors says so on its tab, so a refused schedule points there.
@@ -155,8 +158,8 @@ export function VariantTabs({
                   projectId={projectId}
                   target={a.id}
                   legend={t.ownMedia}
-                  library={library}
-                  driveEnabled={driveEnabled}
+                  library={library.filter((m) => (m.mime === "video/mp4") === (a.platform === "youtube" || a.platform === "tiktok"))}
+                  driveEnabled={driveEnabled && a.platform !== "youtube" && a.platform !== "tiktok"}
                   onImported={onImported}
                   known={known}
                   selected={own.media}
@@ -173,6 +176,38 @@ export function VariantTabs({
                 >
                   {t.useBaseMedia}
                 </Button>
+              </>
+            )}
+            {a.platform === "youtube" && (
+              <>
+                <Field>
+                  <FieldLabel htmlFor={`youtube-title-${a.id}`}>{channel.videoTitle}</FieldLabel>
+                  <Input id={`youtube-title-${a.id}`} disabled={disabled} maxLength={100}
+                    value={String(own?.options.title ?? "")}
+                    onChange={(e) => dispatch({ type: "option", accountId: a.id, key: "title", value: e.target.value })} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`youtube-privacy-${a.id}`}>{channel.visibility}</FieldLabel>
+                  <select id={`youtube-privacy-${a.id}`} className="input" disabled={disabled}
+                    value={String(own?.options.privacy ?? "")}
+                    onChange={(e) => dispatch({ type: "option", accountId: a.id, key: "privacy", value: e.target.value })}>
+                    <option value="">{channel.choose}</option>
+                    <option value="private">{channel.private}</option>
+                    <option value="unlisted">{channel.unlisted}</option>
+                    <option value="public">{channel.public}</option>
+                  </select>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`youtube-audience-${a.id}`}>{channel.audience}</FieldLabel>
+                  <select id={`youtube-audience-${a.id}`} className="input" disabled={disabled}
+                    value={String(own?.options.madeForKids ?? "")}
+                    onChange={(e) => dispatch({ type: "option", accountId: a.id, key: "madeForKids",
+                      value: e.target.value === "" ? undefined : e.target.value === "true" })}>
+                    <option value="">{channel.choose}</option>
+                    <option value="false">{channel.generalAudience}</option>
+                    <option value="true">{channel.madeForKids}</option>
+                  </select>
+                </Field>
               </>
             )}
             <Preview

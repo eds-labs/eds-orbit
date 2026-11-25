@@ -24,6 +24,7 @@ export type EditorAction =
   | { type: "override"; accountId: string; text: string }
   | { type: "inherit"; accountId: string; field?: "text" | "media" }
   | { type: "media"; target: string; mediaIds: string[] }
+  | { type: "option"; accountId: string; key: string; value: unknown }
   | { type: "tab"; tab: string };
 
 export const emptyEditor = (): EditorState => ({
@@ -94,6 +95,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return action.target === "base"
         ? touched({ baseMedia: action.mediaIds })
         : touched({ overrides: override(action.target, { media: action.mediaIds }) });
+    case "option": {
+      const options = { ...state.overrides[action.accountId]?.options, [action.key]: action.value };
+      return touched({ overrides: override(action.accountId, { options }) });
+    }
     case "tab":
       return { ...state, tab: action.tab };
   }

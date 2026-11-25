@@ -245,7 +245,7 @@ const baseConfigSchema = z.object({
   // public posting is approved; also needs ORBIT_PUBLIC_INGRESS.
   ORBIT_SOCIAL_MEDIA_PUBLIC: z.enum(["false", "true"]).default("false"),
   // Platforms the social module may really post to (ADR 0020, S5), a comma
-  // list of x, facebook, instagram and telegram; empty sends nowhere. Live sends also
+  // list of x, facebook, instagram, telegram, linkedin, youtube and tiktok (inbox only); empty sends nowhere. Live sends also
   // need EXECUTION_MODE=live and ENABLE_EXTERNAL_WRITES=true.
   ORBIT_SOCIAL_PLATFORMS: z
     .string()
@@ -256,8 +256,8 @@ const baseConfigSchema = z.object({
           .split(",")
           .map((p) => p.trim())
           .filter(Boolean)
-          .every((p) => ["x", "facebook", "instagram", "telegram"].includes(p)),
-      "ORBIT_SOCIAL_PLATFORMS lists x, facebook, instagram and telegram only",
+          .every((p) => ["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"].includes(p)),
+      "ORBIT_SOCIAL_PLATFORMS contains an unsupported platform",
     ),
   // Ads module (ADR 0025): off until its rollout is approved. Even when "true", it works only in projects whose owner enabled the module.
   ORBIT_ADS: z.enum(["false", "true"]).default("false"),

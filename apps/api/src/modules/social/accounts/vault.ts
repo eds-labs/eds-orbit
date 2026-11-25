@@ -5,6 +5,7 @@ import { connectionSecret } from "../../../platform/connections/central.ts";
 import { withProjectSecret } from "../../../platform/connections/project-secrets.ts";
 import { audit, DomainError } from "../../../shared.ts";
 import { notifyReconnectRequired } from "../notifications.ts";
+import { channelAccountSecret, refreshChannelToken, type ChannelApp } from "./channel-oauth.ts";
 import { appCredentials } from "./apps.ts";
 import { providerFailure } from "./errors.ts";
 import { statusRecordingFetch } from "./http.ts";
@@ -28,7 +29,7 @@ export type AccountCredentials = {
 };
 
 const reconnect = () => new DomainError("SOCIAL_ACCOUNT_RECONNECT_REQUIRED", 409);
-const expiring = (secret: XAccountSecret) =>
+const expiring = (secret: Pick<XAccountSecret, "expiresAt">) =>
   secret.expiresAt !== null && Date.parse(secret.expiresAt) - Date.now() < EARLY_MS;
 const parse = (raw: string) => {
   try {
@@ -92,6 +93,28 @@ async function refreshX(scope: Scope, accountId: string, connectionId: string): 
   }
 }
 
+async function channelAccess(scope: Scope, accountId: string, connectionId: string, externalId: string, platform: ChannelApp, config: Record<string, unknown>, raw: unknown) {
+  try {
+    const parsed = channelAccountSecret.parse(raw);
+    const app = await scoped(scope.workspaceId, scope.projectId, (tx) => appCredentials(tx, scope, platform));
+    if (app.connectionId !== config.appConnectionId || app.channel!.targetId.toLowerCase() !== externalId.toLowerCase()) throw reconnect();
+    if (!expiring(parsed)) return parsed.accessToken;
+    return await withProjectSecret(scope, { moduleId: "social", connectionId }, async (current) => {
+      const secret = channelAccountSecret.parse(parse(current.secret));
+      if (!expiring(secret)) return { result: secret.accessToken };
+      const fresh = await refreshChannelToken(platform, app.channel!, secret);
+      return { result: fresh.accessToken, secret: JSON.stringify(fresh) };
+    });
+  } catch (error) {
+    const failure = providerFailure(error);
+    if (failure.code === "SOCIAL_ACCOUNT_RECONNECT_REQUIRED") {
+      await scoped(scope.workspaceId, scope.projectId, (tx) => markReconnectRequired(tx, scope, accountId, failure.code));
+      throw reconnect();
+    }
+    throw failure;
+  }
+}
+
 /** The account's usable credentials; refreshes an X token close to expiry. */
 export async function accountCredentials(
   scope: Scope,
@@ -125,6 +148,9 @@ export async function accountCredentials(
     const usable = expiring(parsed) ? await refreshX(scope, account.id, account.connectionId) : parsed;
     return { ...base, accessToken: usable.accessToken };
   }
+  if (platform === "tiktok" && config.inbox !== true) return { ...base, accessToken: "" };
+  if (platform === "linkedin" || platform === "youtube" || platform === "tiktok")
+    return { ...base, accessToken: await channelAccess(scope, account.id, account.connectionId, account.externalId, platform, config, secret) };
   if (platform === "telegram") return { ...base, accessToken: String(secret.botToken ?? "") };
   return {
     ...base,

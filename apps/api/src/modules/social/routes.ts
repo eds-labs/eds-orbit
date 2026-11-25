@@ -6,7 +6,8 @@ import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { disconnectAccount, listAccounts, updateAccountSettings } from "./accounts/accounts.ts";
 import { requestWriteVerification } from "./accounts/verify-write.ts";
-import { appReadiness, redirectUri } from "./accounts/apps.ts";
+import { SOCIAL_APPS, appReadiness, redirectUri } from "./accounts/apps.ts";
+import { connectManualTikTok } from "./accounts/tiktok.ts";
 import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
 import { handleMetaDataDeletion, metaDataDeletionStatus } from "./accounts/data-deletion.ts";
 import { checkAccount } from "./accounts/health.ts";
@@ -17,6 +18,7 @@ import { contentDisposition } from "../../platform/files/routes.ts";
 import { assertModuleEnabledFor } from "../../platform/modules/enforcement.ts";
 import { authorize } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
+import { videoRange } from "./media/video.ts";
 import { listMedia, mediaContent, removeMedia, updateMedia, uploadMedia } from "./media/library.ts";
 import { importDriveMedia } from "./media/from-drive.ts";
 import { servePublicMedia } from "./media/public-url.ts";
@@ -34,10 +36,10 @@ import { readSocialSettings, saveSocialSettings } from "./settings.ts";
 const BASE = SOCIAL_BASE;
 
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
-const appParam = z.object({ app: z.enum(["meta", "x"]) });
+const appParam = z.object({ app: z.enum(SOCIAL_APPS) });
 const accountParam = z.object({ accountId: z.uuid() }).passthrough();
 const mediaParam = z.object({ mediaId: z.uuid() }).passthrough();
-const renditionQuery = z.object({ rendition: z.enum(["original", "jpeg"]).default("original") }).passthrough();
+const renditionQuery = z.object({ rendition: z.enum(["original", "jpeg"]).default("original"), download: z.literal("1").optional() }).passthrough();
 const UPLOAD_RATE = { rateLimit: { max: 60, timeWindow: "1 minute" } };
 const UPLOAD_TYPES = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp" } as const;
 const callbackQuery = z
@@ -71,6 +73,10 @@ export const socialRoutes: RoutesContribution = (context) => {
       connectHandler(appParam.parse(params).app).begin(tx, scope),
     ),
   );
+  app.post(`${BASE}/accounts/tiktok`, async (req) => {
+    const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
+    return connectManualTikTok(scope, req.body);
+  });
   app.get(`${BASE}/accounts`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listAccounts(tx, scope)));
   // Which developer apps can start a connection (owners only; no secret).
   app.get(`${BASE}/accounts/apps`, (req) =>
@@ -214,16 +220,27 @@ export const socialRoutes: RoutesContribution = (context) => {
   app.get(`${BASE}/media/:mediaId/content`, async (req, reply) => {
     const scope = await inSocial(auth, req, SOCIAL_READ, async (_tx, scope) => scope);
     const { mediaId } = mediaParam.parse(req.params);
-    const { rendition } = renditionQuery.parse(req.query ?? {});
+    const { rendition, download } = renditionQuery.parse(req.query ?? {});
     const content = await mediaContent(scope, mediaId, rendition);
+    const size = content.bytes.byteLength;
+    let bytes = content.bytes;
+    reply.header("Cache-Control", "private, no-store");
+    if (content.mime === "video/mp4") {
+      reply.header("Accept-Ranges", "bytes");
+      if (req.headers.range) {
+        const range = videoRange(req.headers.range, size);
+        if (!range) return reply.code(416).header("Content-Range", `bytes */${size}`).send();
+        bytes = bytes.subarray(range.start, range.end + 1);
+        reply.code(206).header("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
+      }
+    }
     return reply
       .header("Content-Type", content.mime)
-      .header("Content-Length", String(content.bytes.byteLength))
-      .header("Content-Disposition", contentDisposition("inline", content.name))
+      .header("Content-Length", String(bytes.byteLength))
+      .header("Content-Disposition", contentDisposition(download ? "attachment" : "inline", content.name))
       .header("X-Content-Type-Options", "nosniff")
       .header("Content-Security-Policy", "default-src 'none'; sandbox")
-      .header("Cache-Control", "private, no-store")
-      .send(Buffer.from(content.bytes));
+      .send(Buffer.from(bytes));
   });
   // Signed public media (public ingress only): a platform fetches a post's
   // image while the post is being sent.

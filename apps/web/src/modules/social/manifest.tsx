@@ -58,7 +58,7 @@ export const socialWeb: WebModule = {
       },
       order: 0,
       // The catalog ids of the account providers (apps/api social/accounts/providers.ts).
-      providers: ["social.account.x", "social.account.facebook", "social.account.instagram", "social.account.telegram"],
+      providers: ["social.account.x", "social.account.facebook", "social.account.instagram", "social.account.telegram", "social.account.linkedin", "social.account.youtube", "social.account.tiktok"],
       ownHead: true,
       component: AccountsView,
     },

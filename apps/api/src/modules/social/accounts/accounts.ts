@@ -19,7 +19,7 @@ import { socialFetch } from "./http.ts";
 
 export const X_REVOKE = "https://api.x.com/2/oauth2/revoke";
 
-type Settings = { lastCheckedAt?: string; lastCheckCode?: string | null; xLongPosts?: boolean };
+type Settings = { lastCheckedAt?: string; lastCheckCode?: string | null; xLongPosts?: boolean; tiktokInbox?: boolean };
 type AccountRow = Awaited<ReturnType<DbTx["socialAccount"]["findFirstOrThrow"]>>;
 
 const accountView = (row: AccountRow) => {
@@ -37,7 +37,7 @@ const accountView = (row: AccountRow) => {
     lastCheckedAt: settings.lastCheckedAt ?? null,
     lastCheckCode: settings.lastCheckCode ?? null,
     // What posts may do on the account (S4): X Premium allows long posts.
-    settings: { xLongPosts: settings.xLongPosts === true },
+    settings: { xLongPosts: settings.xLongPosts === true, ...(row.platform === "tiktok" ? { tiktokInbox: settings.tiktokInbox === true } : {}) },
     version: row.version,
   };
 };

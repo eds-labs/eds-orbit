@@ -22,7 +22,7 @@ const payload = z
   .object({
     accountId: z.uuid(),
     accountVersion: z.int().min(1),
-    platform: z.enum(["x", "facebook", "instagram", "telegram"]),
+    platform: z.enum(["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"]),
     handle: z.string(),
     text: z.string().min(1).max(280),
     /** A library image (required for Instagram, which posts nothing without one). */
@@ -37,10 +37,11 @@ const requestInput = z
 /** The image of a test post: in this project and fitting the platform. */
 async function checkMedia(tx: DbTx, scope: Scope, platform: SocialPlatform, mediaId: string | null) {
   if (!mediaId) {
+    if (platform === "youtube") throw new DomainError("SOCIAL_VIDEO_REQUIRED", 422);
     if (platform === "instagram") throw new DomainError("SOCIAL_MEDIA_REQUIRED", 422);
     return;
   }
-  const asset = await tx.socialMediaAsset.findFirst({ where: { id: mediaId, projectId: scope.projectId } });
+  const asset = await tx.socialMediaAsset.findFirst({ where: { id: mediaId, projectId: scope.projectId, archivedAt: null } });
   if (!asset) throw new DomainError("NOT_FOUND", 404);
   if (carouselIssues([asset], platform).length) throw new DomainError("SOCIAL_VALIDATION_FAILED", 409);
 }
@@ -79,7 +80,10 @@ export const verifyWriteAction: ActionDefinition<VerifyPayload> = {
       title: "Write verification",
       baseText: p.text,
       baseMedia: p.mediaId ? [p.mediaId] : [],
-      variants: [{ accountId: p.accountId }],
+      variants: [{
+        accountId: p.accountId,
+        ...(p.platform === "youtube" ? { options: { title: p.text.slice(0, 100), privacy: "private", madeForKids: false } } : {}),
+      }],
     });
     await tx.socialPost.update({
       where: { id: post.id },

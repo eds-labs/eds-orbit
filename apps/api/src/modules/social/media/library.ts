@@ -6,6 +6,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   cleanFileName,
   deleteFile,
+  requireFiles,
   markFilesDeleted,
   purgeMarkedFiles,
   readFile,
@@ -13,6 +14,7 @@ import {
 } from "../../../platform/files/files.ts";
 import { audit, DomainError } from "../../../shared.ts";
 import { aiImageLabelsEnabled } from "../../../platform/provenance/image-provenance.ts";
+import { socialVideoFacts, SOCIAL_VIDEO_MAX_BYTES, SOCIAL_VIDEO_MIME } from "./video.ts";
 import { provenanceBeforeIngest, recordStoredRenditions } from "./provenance.ts";
 
 // The social module's media library (ADR 0020, S3): every image is stored
@@ -59,6 +61,7 @@ type AssetRow = {
   jpegWidth: number;
   jpegHeight: number;
   jpegSize: number;
+  durationMs?: number | null;
   altText: string | null;
   version: number;
   createdAt: Date;
@@ -76,6 +79,7 @@ const view = (row: AssetRow): MediaView => ({
   jpegWidth: row.jpegWidth,
   jpegHeight: row.jpegHeight,
   jpegSize: row.jpegSize,
+  ...(row.durationMs != null ? { durationMs: row.durationMs } : {}),
   altText: row.altText,
   version: row.version,
   createdAt: row.createdAt.toISOString(),
@@ -90,7 +94,45 @@ export async function uploadMedia(
   scope: Scope,
   input: { bytes: Uint8Array; mime: string; name?: unknown },
 ): Promise<MediaView> {
-  return (await ingestMedia(scope, input)).media;
+  if (input.mime.trim().toLowerCase() !== SOCIAL_VIDEO_MIME) return (await ingestMedia(scope, input)).media;
+
+  const storage = requireFiles();
+  if (storage.backend !== "s3") throw new DomainError("SOCIAL_VIDEO_STORAGE_REQUIRED", 409);
+  if (input.bytes.byteLength > Math.min(SOCIAL_VIDEO_MAX_BYTES, storage.maxBytes))
+    throw new DomainError("FILE_TOO_LARGE", 413);
+
+  const facts = await withMediaSlot(async () => socialVideoFacts(input.bytes));
+  const name = cleanFileName(input.name, SOCIAL_VIDEO_MIME) ?? "video.mp4";
+  const file = await storeFile(scope, { moduleId: MODULE, bytes: input.bytes, mime: SOCIAL_VIDEO_MIME, name });
+  try {
+    return await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const row = await tx.socialMediaAsset.create({
+        data: {
+          ...facts,
+          id: randomUUID(),
+          projectId: scope.projectId,
+          workspaceId: scope.workspaceId,
+          fileId: file.id,
+          // A video has a single file. Both existing file references
+          // point to it; only the original rendition is exposed.
+          jpegFileId: file.id,
+          jpegWidth: facts.width,
+          jpegHeight: facts.height,
+          jpegSize: file.size,
+          size: file.size,
+          name,
+          mime: SOCIAL_VIDEO_MIME,
+          sha256: file.sha256,
+          createdBy: scope.userId,
+        },
+      });
+      await audit(tx, scope, "social.media.uploaded", row.id, { mime: row.mime, size: row.size });
+      return view(row);
+    });
+  } catch (error) {
+    await discard(scope, file.id);
+    throw error;
+  }
 }
 
 /** How an image entered the library, for the content-free audit record. */
@@ -332,11 +374,11 @@ export async function removeMedia(scope: Scope, id: string): Promise<{ id: strin
       return { row, removed: "archived" as const };
     }
     await tx.socialMediaAsset.delete({ where: { id: row.id } });
-    await markFilesDeleted(tx, scope, [row.fileId, row.jpegFileId]);
+    await markFilesDeleted(tx, scope, [...new Set([row.fileId, row.jpegFileId])]);
     await audit(tx, scope, "social.media.deleted", row.id, {});
     return { row, removed: "deleted" as const };
   });
-  if (outcome.removed === "deleted") await purgeMarkedFiles(scope, [outcome.row.fileId, outcome.row.jpegFileId]);
+  if (outcome.removed === "deleted") await purgeMarkedFiles(scope, [...new Set([outcome.row.fileId, outcome.row.jpegFileId])]);
   return { id, removed: outcome.removed };
 }
 
@@ -349,7 +391,7 @@ export async function mediaContent(
   const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     tx.socialMediaAsset.findFirst({ where: { id, projectId: scope.projectId } }),
   );
-  if (!row) throw notFound();
+  if (!row || (row.mime === SOCIAL_VIDEO_MIME && rendition === "jpeg")) throw notFound();
   const { file, bytes } = await readFile(scope, rendition === "jpeg" ? row.jpegFileId : row.fileId);
   if (file.moduleId !== MODULE) throw notFound();
   return { bytes, mime: file.mime, name: file.name ?? row.name };

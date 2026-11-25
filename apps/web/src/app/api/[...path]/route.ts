@@ -78,6 +78,8 @@ async function proxy(
   const oauth = path[0] === "auth" && path[1] === "oauth2";
   // Their answers carry their own caching (ETag reads, immutable media), which
   // websites and their CDNs rely on while Orbit is unreachable.
+  const socialMediaContent = request.method === "GET" && path.length === 6 &&
+    path[0] === "projects" && path[2] === "social" && path[3] === "media" && path[5] === "content";
   const cacheable =
     path[0] === "v1" ||
     (path[0] === "public" && path[1] === "cms" && path[2] === "media");
@@ -90,7 +92,9 @@ async function proxy(
         ? v1Headers
         : path[0] === "public"
           ? publicHeaders
-          : oauth
+          : socialMediaContent
+            ? [...forwardedHeaders, "range"]
+            : oauth
             ? oauthHeaders
             : forwardedHeaders,
     { keepCaching: cacheable },

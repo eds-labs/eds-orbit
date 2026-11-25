@@ -19,7 +19,7 @@ export function Preview({
   platform: SocialPlatform;
   handle: string;
   text: string;
-  media: Array<{ mediaId: string; altText: string | null }>;
+  media: Array<{ mediaId: string; mime?: string; altText: string | null }>;
   xLongPosts?: boolean;
   locale: "en" | "de";
 }) {
@@ -42,7 +42,10 @@ export function Preview({
       </p>
       {media.length > 0 && (
         <div className="settings-rows">
-          {media.map((m) => (
+          {media.map((m) => m.mime === "video/mp4" ? (
+            <video key={m.mediaId} width={120} controls preload="none" aria-label={all.platform[platform]}
+              src={`/api${socialPath(projectId, `/media/${m.mediaId}/content`)}`} />
+          ) : (
             <img
               key={m.mediaId}
               src={`/api${socialPath(projectId, `/media/${m.mediaId}/content?rendition=jpeg`)}`}

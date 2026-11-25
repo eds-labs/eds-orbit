@@ -6,6 +6,8 @@ Alle wesentlichen Änderungen am Codex Project Framework werden in dieser Datei 
 
 ### Added
 
+- Native LinkedIn Company Page publishing, resumable YouTube uploads, and a manual TikTok handoff with optional inbox delivery. Videos stay project-scoped in encrypted object storage.
+
 - MCP 2.0 delegated work orders with durable task/result/cancellation tools, native Orbit Chat visibility and standard resource notifications
 - 24 native Support, Marketing and Knowledge read/approval tools plus a connection-owned action-result tool, reusing existing module services, jobs and owner approvals
 - Optional `orbit:write` and `orbit:support` consent, delegated permission/budget checks, privacy lifecycle tests and opt-in `ORBIT_MCP_TASKS` (default false); no new migration or dependency

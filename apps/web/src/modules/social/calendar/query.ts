@@ -12,7 +12,7 @@ export type CalendarState = {
 };
 
 const VIEWS = ["month", "week", "list"] as const;
-const PLATFORMS = ["x", "facebook", "instagram", "telegram"];
+const PLATFORMS = ["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"];
 const STATUSES = ["draft", "needs_approval", "approved", "scheduled", "publishing", "published", "partially_published", "failed", "canceled", "archived"];
 const ORIGINS = ["manual", "marketing", "mcp", "assistant", "legacy_postiz"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

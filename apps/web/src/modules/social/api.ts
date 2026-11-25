@@ -14,7 +14,7 @@ export type SocialStatus = {
 export const socialPath = (projectId: string, rest = "") =>
   `/projects/${encodeURIComponent(projectId)}/social${rest}`;
 
-export type SocialPlatform = "x" | "facebook" | "instagram" | "telegram";
+export type SocialPlatform = "x" | "facebook" | "instagram" | "telegram" | "linkedin" | "youtube" | "tiktok";
 export type SocialAccountStatus = "active" | "reconnect_required" | "disabled";
 
 /** GET /projects/:projectId/social/accounts (never a token). */
@@ -31,7 +31,7 @@ export type SocialAccount = {
   lastCheckedAt: string | null;
   lastCheckCode: string | null;
   /** What posts may do on the account (S4); long posts only on X. */
-  settings: { xLongPosts: boolean };
+  settings: { xLongPosts: boolean; tiktokInbox?: boolean };
   version: number;
 };
 export type SocialAccounts = { items: SocialAccount[] };
@@ -42,7 +42,8 @@ export type SocialAccounts = { items: SocialAccount[] };
  * organization still grants it to the project; "not_granted": the
  * administration still adds or grants it.
  */
-export type SocialAppReadiness = Record<"x" | "meta", "ready" | "project_not_granted" | "not_granted" | "invalid">;
+type AppReadiness = "ready" | "project_not_granted" | "not_granted" | "invalid";
+export type SocialAppReadiness = Record<"x" | "meta", AppReadiness> & Partial<Record<"linkedin" | "youtube" | "tiktok", AppReadiness>>;
 
 /** GET /projects/:projectId/social/media (S3). */
 export type SocialMedia = {
@@ -55,6 +56,7 @@ export type SocialMedia = {
   jpegWidth: number;
   jpegHeight: number;
   jpegSize: number;
+  durationMs?: number;
   altText: string | null;
   version: number;
   createdAt: string;
@@ -63,7 +65,7 @@ export type SocialMediaList = { items: SocialMedia[] };
 
 /** A platform's verdict on one variant (S4); errors block scheduling. */
 export type ValidationIssue = { code: string; severity: "error" | "warning"; path?: string };
-export type MediaRef = { mediaId: string; width: number; height: number; altText: string | null };
+export type MediaRef = { mime?: "video/mp4"; mediaId: string; width: number; height: number; altText: string | null };
 export type ApprovalState = "none" | "pending" | "approved" | "rejected" | "expired" | "canceled";
 /**
  * The other module's record a post came from (read-only, WP3): Marketing's
@@ -137,6 +139,7 @@ export type PublicationView = {
   publishedAt: string | null;
   resolution: string | null;
   test: boolean;
+  inboxReady?: boolean;
   version: number;
 };
 

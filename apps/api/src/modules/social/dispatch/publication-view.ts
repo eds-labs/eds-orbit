@@ -15,6 +15,7 @@ export type PublicationView = {
   publishedAt: string | null;
   resolution: string | null;
   test: boolean;
+  inboxReady?: boolean;
   version: number;
 };
 
@@ -44,5 +45,6 @@ export const publicationView = (row: Row, platform: SocialPlatform): Publication
   publishedAt: row.publishedAt?.toISOString() ?? null,
   resolution: row.resolution,
   test: (row.providerState as { test?: unknown } | null)?.test === true,
+  ...((row.providerState as { tiktokInboxReady?: unknown } | null)?.tiktokInboxReady === true ? { inboxReady: true } : {}),
   version: row.version,
 });

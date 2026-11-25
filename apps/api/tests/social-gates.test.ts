@@ -37,6 +37,13 @@ describe("social delivery gates", () => {
     expect(platformEnabled("instagram")).toBe(true);
     process.env.ORBIT_SOCIAL_PLATFORMS = "facebook";
     expect(platformEnabled("facebook")).toBe(true);
-    expect(SENDABLE_PLATFORMS).toEqual(["x", "facebook", "instagram", "telegram"]);
+    expect(platformEnabled("linkedin")).toBe(false);
+    expect(platformEnabled("youtube")).toBe(false);
+    expect(platformEnabled("tiktok")).toBe(false);
+    process.env.ORBIT_SOCIAL_PLATFORMS = "linkedin,youtube,tiktok";
+    expect(platformEnabled("linkedin")).toBe(true);
+    expect(platformEnabled("youtube")).toBe(true);
+    expect(platformEnabled("tiktok")).toBe(true);
+    expect(SENDABLE_PLATFORMS).toEqual(["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"]);
   });
 });

@@ -21,14 +21,19 @@ export const telegramSender: SocialSender = {
   async send(_scope, input) {
     const chat = String(input.credentials.config.chatId ?? input.credentials.externalId);
     const silent = input.options.silent === true;
+    const images = input.media.flatMap((item) =>
+      item.mime === "video/mp4" ? [] : [{ bytes: item.bytes, mime: item.mime }],
+    );
+    if (images.length !== input.media.length)
+      return { kind: "failed", code: "SOCIAL_VIDEO_NOT_AVAILABLE", retry: "never" };
     try {
       const client = createTelegramClient({ token: input.credentials.accessToken, fetch: socialFetch });
       const ids =
-        input.media.length === 0
+        images.length === 0
           ? [(await client.sendMessage(chat, input.body, undefined, { disableLinkPreview: input.options.disableLinkPreview !== false, silent })).messageId]
-          : input.media.length === 1
-            ? [(await client.sendPhoto(chat, input.media[0]!.bytes, input.body, undefined, { silent, mime: input.media[0]!.mime })).messageId]
-            : (await client.sendMediaGroup(chat, input.media.map((m) => ({ bytes: m.bytes, mime: m.mime })), input.body, { silent })).messageIds;
+          : images.length === 1
+            ? [(await client.sendPhoto(chat, images[0]!.bytes, input.body, undefined, { silent, mime: images[0]!.mime })).messageId]
+            : (await client.sendMediaGroup(chat, images.map((m) => ({ bytes: m.bytes, mime: m.mime })), input.body, { silent })).messageIds;
       const first = String(ids[0]);
       // A public channel's handle is "@name" (S2); a private one has no link.
       const name = input.account.handle.startsWith("@") ? input.account.handle.slice(1) : null;

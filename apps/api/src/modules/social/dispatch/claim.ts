@@ -6,6 +6,7 @@ import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { audit, DomainError, exception } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { markReconnectRequired } from "../accounts/vault.ts";
+import { TIKTOK_MANUAL } from "../accounts/tiktok.ts";
 import { markWriteVerified } from "../accounts/verify-write.ts";
 import { senderFor, type SendResult } from "../adapters/registry.ts";
 import { publicMediaEnabled } from "../media/public-url.ts";
@@ -82,15 +83,17 @@ export async function claimPublication(tx: DbTx, scope: Scope, id: string, now: 
     await blockPublication(tx, scope, id, code);
     return { kind: "blocked", code };
   };
-  if (account.status !== "active") return blocked("ACCOUNT_RECONNECT_REQUIRED");
+  if (account.status === "disabled" || (account.status !== "active" && platform !== "tiktok")) return blocked("ACCOUNT_RECONNECT_REQUIRED");
+  if ((await packageOf(tx, scope, post.id)).hash !== post.packageHash) return blocked("SOCIAL_APPROVAL_STALE");
+  if (platform === "tiktok" && (account.status !== "active" || mode !== "live" || !platformEnabled(platform) ||
+      !(account.settings as { tiktokInbox?: boolean }).tiktokInbox)) return blocked(TIKTOK_MANUAL);
   if (mode === "live") {
     if (!platformEnabled(platform)) return blocked("SOCIAL_PLATFORM_NOT_AVAILABLE");
     // A write verification is the post that earns write_verified (S5).
-    if (account.capability !== "write_verified" && post.originType !== "write_verification")
+    if (platform !== "tiktok" && account.capability !== "write_verified" && post.originType !== "write_verification")
       return blocked("SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED");
     if (platform === "instagram" && !publicMediaEnabled()) return blocked("SOCIAL_MEDIA_PUBLIC_REQUIRED");
   }
-  if ((await packageOf(tx, scope, post.id)).hash !== post.packageHash) return blocked("SOCIAL_APPROVAL_STALE");
   if (mode === "live") {
     const throttle = await takeThrottle(tx, scope, { id: account.id, platform }, now);
     if (!throttle.ok) {
@@ -164,7 +167,13 @@ export async function finishPublication(
   // Stopped while it was being sent: what went out stays recorded, but a
   // refusal is not retried and a post still processing is not published.
   const stopped = pub.status === "cancel_requested" || (pub.providerState as { cancelRequested?: unknown })?.cancelRequested === true;
-  if (stopped && (result.kind === "failed" || result.kind === "processing")) {
+  if (stopped && account.platform === "youtube" && result.kind === "failed" &&
+      (result.providerState?.youtubeUploadUncertain === true ||
+        (pub.providerState as { youtubeUploadUncertain?: boolean }).youtubeUploadUncertain === true)) {
+    result = { kind: "unknown", code: "SOCIAL_PROVIDER_UNKNOWN" };
+  }
+  if (stopped && (result.kind === "failed" || result.kind === "manual" ||
+      (result.kind === "processing" && account.platform !== "youtube"))) {
     await tx.socialPublication.update({
       where: { id },
       data: {
@@ -180,6 +189,11 @@ export async function finishPublication(
     return;
   }
   switch (result.kind) {
+    case "manual":
+      if (result.providerState)
+        await tx.socialPublication.update({ where: { id }, data: { providerState: state(result.providerState) } });
+      await blockPublication(tx, scope, id, TIKTOK_MANUAL);
+      return;
     case "published":
       await tx.socialPublication.update({
         where: { id },
@@ -239,6 +253,7 @@ export async function finishPublication(
             retryDisposition: "after-delay",
             nextAttemptAt: next,
             lastErrorCode: result.code,
+            ...(result.providerState ? { providerState: state(result.providerState) } : {}),
             fence: null,
             version: { increment: 1 },
           },

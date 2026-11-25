@@ -10,7 +10,7 @@ import { socialText } from "./labels";
 // platform hides its notice and connect button; the choice is a per-browser
 // convenience in localStorage, and a granted or broken app shows again.
 
-export type SocialApp = keyof SocialAppReadiness;
+export type SocialApp = "x" | "meta";
 type AppState = Exclude<SocialAppReadiness[SocialApp], "ready">;
 
 const APPS: readonly SocialApp[] = ["x", "meta"];

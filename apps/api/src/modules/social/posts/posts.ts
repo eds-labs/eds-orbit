@@ -19,7 +19,7 @@ import { validateVariant, type ValidationIssue } from "./validation.ts";
 // clears the approval and withdraws a pending request (S-D6). Nothing here
 // sends anything.
 
-export type MediaRef = { mediaId: string; width: number; height: number; altText: string | null };
+export type MediaRef = { mime?: "video/mp4"; mediaId: string; width: number; height: number; altText: string | null };
 export type ApprovalState = "none" | "pending" | "approved" | "rejected" | "expired" | "canceled";
 export type PostView = {
   id: string;
@@ -176,7 +176,7 @@ const ORIGINS = ["manual", "marketing", "mcp", "assistant", "legacy_postiz"];
  */
 export async function postFilters(tx: DbTx, scope: Scope, q: { accountIds?: string; platforms?: string; origins?: string }) {
   const accountIds = csv(q.accountIds).filter((id) => UUID.test(id));
-  const platforms = csv(q.platforms).filter((p) => ["x", "facebook", "instagram", "telegram"].includes(p));
+  const platforms = csv(q.platforms).filter((p) => ["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"].includes(p));
   const origins = csv(q.origins).filter((o) => ORIGINS.includes(o));
   const where: Prisma.SocialPostWhereInput = {};
   if (origins.length) where.origin = { in: origins };
@@ -303,7 +303,7 @@ export async function getPost(tx: DbTx, scope: Scope, id: string): Promise<PostV
     baseText: post.baseText,
     baseMedia: baseIds.flatMap((mediaId) => {
       const a = assetById.get(mediaId);
-      return a ? [{ mediaId, width: a.width, height: a.height, altText: a.altText }] : [];
+      return a ? [{ mediaId, width: a.width, height: a.height, altText: a.altText, ...(a.mime === "video/mp4" ? { mime: a.mime } : {}) }] : [];
     }),
     schedule: scheduleView(post),
     approval: {
@@ -339,7 +339,7 @@ export async function getPost(tx: DbTx, scope: Scope, id: string): Promise<PostV
             .sort((a, b) => a.position - b.position)
             .flatMap((m) => {
               const a = assetByFile.get(m.fileId);
-              return a ? [{ mediaId: a.id, width: m.width ?? a.width, height: m.height ?? a.height, altText: m.altText }] : [];
+              return a ? [{ mediaId: a.id, width: m.width ?? a.width, height: m.height ?? a.height, altText: m.altText, ...(a.mime === "video/mp4" ? { mime: a.mime } : {}) }] : [];
             }),
           options: (v.platformOptions ?? {}) as Record<string, unknown>,
           issues: ((v.validation as { issues?: ValidationIssue[] })?.issues ?? []) as ValidationIssue[],

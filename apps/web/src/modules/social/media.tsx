@@ -9,6 +9,7 @@ import { DriveBrowser } from "@/platform/drive/drive-browser";
 import { driveText } from "@/platform/drive/labels";
 import { isDriveVideo, type DriveFile } from "@/platform/drive/api";
 import { importFromDrive, SOCIAL_DRIVE_TYPES, socialPath, type SocialMedia, type SocialMediaList } from "./api";
+import { channelCopy } from "./channels-copy";
 import { mediaMessage, socialText } from "./labels";
 
 // The social media library (ADR 0020, S3): everybody in the module sees the
@@ -23,6 +24,7 @@ const X_MAX = 5 * 1024 * 1024;
 export function mediaHints(media: SocialMedia, locale: "en" | "de"): string[] {
   const t = socialText(locale).media;
   const hints: string[] = [];
+  if (media.mime === "video/mp4") return hints;
   const ratio = media.jpegWidth / media.jpegHeight;
   if (ratio < 0.799 || ratio > 1.911) hints.push(t.hintInstagramRatio);
   if (media.jpegWidth < 320) hints.push(t.hintInstagramSmall);
@@ -49,17 +51,20 @@ function MediaCard({
   const id = `social-media-alt-${media.id}`;
   return (
     <li className="work-settings-row">
-      <img
+      {media.mime === "video/mp4" ? (
+        <video width={160} controls preload="none" aria-label={media.name}
+          src={`/api${socialPath(project.id, `/media/${media.id}/content`)}`} />
+      ) : <img
         src={`/api${socialPath(project.id, `/media/${media.id}/content?rendition=jpeg`)}`}
         alt={media.altText ?? media.name}
         width={160}
         height={Math.max(1, Math.round((160 * media.jpegHeight) / media.jpegWidth))}
         loading="lazy"
-      />
+      />}
       <div>
         <strong>{media.name}</strong>
         <p className="field-hint">
-          {media.width} × {media.height}
+          {media.width} × {media.height}{media.durationMs ? ` · ${Math.ceil(media.durationMs / 1000)} s` : ""}
         </p>
         {mediaHints(media, locale).map((hint) => (
           <p key={hint} className="field-hint">
@@ -155,7 +160,7 @@ export function MediaView() {
             {busy ? t.uploading : t.upload}
             <input
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept="image/png,image/jpeg,image/webp,video/mp4"
               className="sr-only"
               disabled={busy}
               onChange={(event) => {
@@ -172,6 +177,7 @@ export function MediaView() {
           </Button>
         )}
       </PageHead>
+      <p className="field-hint">{channelCopy(locale).videoFormat}</p>
       {message && <Alert kind="error">{message}</Alert>}
       <ResourceError error={list.error} retry={list.refresh} />
       {list.data &&

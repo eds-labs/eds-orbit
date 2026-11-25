@@ -122,6 +122,6 @@ describe("validateVariant", () => {
   });
 
   it("names its limits", () => {
-    expect(TEXT_LIMITS).toEqual({ x: 280, xLong: 25_000, instagram: 2_200, facebook: 63_206, telegram: 4_096, telegramCaption: 1_024 });
+    expect(TEXT_LIMITS).toEqual({ x: 280, xLong: 25_000, instagram: 2_200, facebook: 63_206, telegram: 4_096, telegramCaption: 1_024, linkedin: 3_000, youtube: 5_000, tiktok: 2_200 });
   });
 });

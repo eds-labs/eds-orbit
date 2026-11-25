@@ -2,6 +2,7 @@ import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { SocialApp } from "./apps.ts";
 import type { consumeOAuthState, OAuthPlatform } from "./oauth-state.ts";
+import { channelConnect } from "./channel-oauth.ts";
 import { metaConnect } from "./meta.ts";
 import { xConnect } from "./x.ts";
 
@@ -19,11 +20,11 @@ export type ConnectHandler = {
   ): Promise<{ accounts: number }>;
 };
 
-const handlers: Record<SocialApp, ConnectHandler> = { meta: metaConnect, x: xConnect };
+const handlers: Record<SocialApp, ConnectHandler> = { meta: metaConnect, x: xConnect, linkedin: channelConnect("linkedin"), youtube: channelConnect("youtube"), tiktok: channelConnect("tiktok") };
 const overrides: Partial<Record<SocialApp, ConnectHandler>> = {};
 
 /** The OAuth state platform of a developer app. */
-export const oauthPlatform = (app: SocialApp): OAuthPlatform => (app === "meta" ? "facebook" : "x");
+export const oauthPlatform = (app: SocialApp): OAuthPlatform => (app === "meta" ? "facebook" : app);
 
 export function connectHandler(app: SocialApp): ConnectHandler {
   return overrides[app] ?? handlers[app];

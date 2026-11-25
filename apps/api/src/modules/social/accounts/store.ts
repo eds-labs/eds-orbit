@@ -13,7 +13,7 @@ import { audit, DomainError } from "../../../shared.ts";
 // of its own project connection; a reconnect of the same platform account
 // rotates that secret instead of creating a second account.
 
-export type SocialPlatform = "x" | "facebook" | "instagram" | "telegram";
+export type SocialPlatform = "x" | "facebook" | "instagram" | "telegram" | "linkedin" | "youtube" | "tiktok";
 
 export type ConnectedAccount = {
   platform: SocialPlatform;

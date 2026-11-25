@@ -15,7 +15,7 @@ const TTL_MS = 10 * 60_000;
 const DAY = 24 * 60 * 60_000;
 const uuid = z.uuid();
 
-export type OAuthPlatform = "x" | "facebook";
+export type OAuthPlatform = "x" | "facebook" | "linkedin" | "youtube" | "tiktok";
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const invalid = () => new DomainError("SOCIAL_OAUTH_STATE_INVALID", 403);

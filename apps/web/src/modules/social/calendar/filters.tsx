@@ -8,7 +8,7 @@ import type { CalendarState } from "./query";
 type ListKey =
   "accountIds" | "platforms" | "statuses" | "origins" | "projectIds";
 
-const PLATFORMS = ["x", "facebook", "instagram", "telegram"] as const;
+const PLATFORMS = ["x", "facebook", "instagram", "telegram", "linkedin", "youtube", "tiktok"] as const;
 const STATUSES = [
   "draft",
   "needs_approval",

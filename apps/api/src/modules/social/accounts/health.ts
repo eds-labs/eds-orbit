@@ -4,6 +4,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { PeriodicTask } from "../../../platform/jobs/types.ts";
 import { audit, DomainError } from "../../../shared.ts";
 import { socialActive } from "../gate.ts";
+import { readChannel } from "./channel-oauth.ts";
 import { appCredentials } from "./apps.ts";
 import { providerFailure, responseFailure } from "./errors.ts";
 import { socialFetch } from "./http.ts";
@@ -24,12 +25,17 @@ type Result = { ok: true } | { ok: false; code: string };
 
 async function probe(scope: Scope, accountId: string, manual: boolean): Promise<Result> {
   const credentials = await accountCredentials(scope, accountId, { allowReconnect: manual });
+  if (credentials.platform === "tiktok" && credentials.config.inbox !== true) return { ok: true };
   if (credentials.platform === "x") {
     const response = await socialFetch(X_USER, {
       headers: { Authorization: `Bearer ${credentials.accessToken}`, Accept: "application/json" },
     });
     if (response.ok) return { ok: true };
     throw responseFailure(response);
+  }
+  if (credentials.platform === "linkedin" || credentials.platform === "youtube" || credentials.platform === "tiktok") {
+    await readChannel(credentials.platform, credentials.accessToken, credentials.externalId);
+    return { ok: true };
   }
   if (credentials.platform === "telegram") {
     const member = await createTelegramClient({ token: credentials.accessToken, fetch: socialFetch }).getChatMember(
