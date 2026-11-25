@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, entity, DomainError, create, update } from "../../../shared.ts";
+import { closedDraftStatus } from "../approval-state.ts";
 import { draftReplaced, expiredDraftIds } from "./draft-state.ts";
 const WAITING = ["draft", "needs_review", "reviewed", "blocked_dependency"];
 export const REVIEW_BACKLOG_FULL = "ASSIGNMENT_REVIEW_BACKLOG_FULL";
@@ -63,6 +64,7 @@ export async function reviewBacklog(
     (r) =>
       (!currentRunId || data(r).assignmentRunId !== currentRunId) &&
       !draftReplaced(data(r)) &&
+      !closedDraftStatus(data(r)) &&
       !handedOff.has(r.id) &&
       WAITING.includes(data(r).status),
   );

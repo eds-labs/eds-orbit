@@ -3,6 +3,7 @@ import type {
   ImpactHandler,
   Scope,
 } from "../../../../../../packages/knowledge/src/index.ts";
+import { closedDraftStatus } from "../approval-state.ts";
 
 const json = (value: unknown) =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -122,12 +123,13 @@ export const invalidateMarketingForKnowledge: ImpactHandler = async (
           : e.kind === "insights"
             ? "retracted"
             : "blocked_dependency";
-    // Archived content stays archived: an invalidation marks it but never
-    // puts it back on the approvals page. Purged content is archived as
-    // well, since with its text removed there is nothing left to review.
+    // Invalidation never reopens a closed draft. Purged content is archived
+    // since with its text removed there is nothing left to review.
+    const closed = e.kind === "content" ? closedDraftStatus(d) : null;
     const archiveContent =
-      e.kind === "content" && (String(d.status) === "archived" || purged);
+      e.kind === "content" && (closed === "archived" || purged);
     if (archiveContent) status = "archived";
+    else if (closed) status = closed;
     const needsRemoteReconcile =
       e.kind === "publications" && REMOTE.includes(String(d.status));
     if (needsRemoteReconcile) status = "reconciliation_required";
@@ -149,7 +151,7 @@ export const invalidateMarketingForKnowledge: ImpactHandler = async (
       dependencyInvalidated: true,
       ...(needsRemoteReconcile ? { reconciliationStatus: "required" } : {}),
       ...(purged ? PURGED : {}),
-      ...(archiveContent && String(d.status) !== "archived"
+      ...(archiveContent && closed !== "archived"
         ? {
             statusBeforeArchive: String(d.status),
             archivedAt: new Date().toISOString(),

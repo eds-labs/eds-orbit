@@ -16,6 +16,7 @@ import {
   audit,
   DomainError,
 } from "../../../shared.ts";
+import { closedDraftStatus } from "../approval-state.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import {
   isApprovedAsset,
@@ -187,12 +188,13 @@ export async function saveMarketingProfile(
     for (const content of await list(tx, scope, "content")) {
       const c = data(content);
       if (c.profileVersion !== existing.version) continue;
-      await update(tx, scope, content, {
-        ...c,
-        status: "needs_review",
-        profileInvalidatedFrom: existing.version,
-        profileInvalidatedTo: version,
-      });
+      if (!closedDraftStatus(c))
+        await update(tx, scope, content, {
+          ...c,
+          status: "needs_review",
+          profileInvalidatedFrom: existing.version,
+          profileInvalidatedTo: version,
+        });
       await invalidateContent(tx, scope, content.id);
     }
   await audit(tx, scope, "marketing_profile.save", saved.id, { version });

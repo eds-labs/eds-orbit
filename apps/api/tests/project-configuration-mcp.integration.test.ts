@@ -191,22 +191,26 @@ describe.skipIf(!enabled)("Project configuration over MCP", () => {
     ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_CONFLICT" });
   });
 
-  it("sends drafts of the previous profile version back to review", async () => {
+  it("sends open drafts of the previous profile version back to review and keeps closed drafts", async () => {
     const version = (await read()).version;
-    const draft = await scoped(legacy.owner.workspaceId, legacy.owner.projectId, (tx) =>
-      create(tx, legacy.owner, "content", {
-        title: "Synthetic draft",
-        body: "Synthetic body",
-        status: "draft",
-        profileVersion: version,
-      }),
+    const drafts = await scoped(legacy.owner.workspaceId, legacy.owner.projectId, (tx) =>
+      Promise.all(["draft", "rejected", "archived"].map((status) =>
+        create(tx, legacy.owner, "content", {
+          title: "Synthetic draft",
+          body: "Synthetic body",
+          status,
+          profileVersion: version,
+        }),
+      )),
     );
     const proposal = await propose({ marketing: { guardrails: ["No unsupported claims", "No prices"] } }, version);
     await decide(legacy, proposal.actionRequestId);
-    const after = await scoped(legacy.owner.workspaceId, legacy.owner.projectId, (tx) =>
-      tx.entity.findUniqueOrThrow({ where: { id: draft.id } }),
+    const [open, rejected, archived] = await scoped(legacy.owner.workspaceId, legacy.owner.projectId, (tx) =>
+      Promise.all(drafts.map(({ id }) => tx.entity.findUniqueOrThrow({ where: { id } }))),
     );
-    expect(after.data).toMatchObject({
+    expect(rejected).toEqual(drafts[1]);
+    expect(archived).toEqual(drafts[2]);
+    expect(open!.data).toMatchObject({
       status: "needs_review",
       profileInvalidatedFrom: version,
       profileInvalidatedTo: version + 1,

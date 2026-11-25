@@ -169,6 +169,16 @@ describe("approval state parity (server and web)", () => {
     expect(approvalLane({ status: "needs_review" })).toBe("open");
   });
 
+  it.each([
+    { status: "needs_review", ownerDecision: { action: "rejected" } },
+    { status: "needs_review", ownerDecision: { action: "archived" } },
+    { status: "needs_review", ownerDecision: { action: "discarded" } },
+    { status: "needs_review", archivedAt: "2026-11-25", profileInvalidatedFrom: 1 },
+  ])("keeps a reopened closed draft in history (%o)", (content) => {
+    expect(approvalLane(content, { expired: true })).toBe("history");
+    expect(webApprovalLane(content, { expired: true })).toBe("history");
+  });
+
   it("finds the same original of a channel copy", () => {
     const rows = [
       { id: "a", data: {} },

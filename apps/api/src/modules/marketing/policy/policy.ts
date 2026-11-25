@@ -16,10 +16,10 @@ import {
   publishingBlockers,
   recentPublishedTexts,
 } from "../../social/contract.ts";
+import { closedDraftStatus } from "../approval-state.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import {
   CONTENT_CLOSED,
-  contentClosed,
   refuseClosedContent,
 } from "../pipeline/content-decisions.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -564,7 +564,7 @@ export async function preflight(
   const onSocial = "publishingBackend" in pkg.packageData;
   const blockers: string[] = [];
   // Rejected or archived content never goes out (owner decision or review).
-  if (contentClosed(c.status)) blockers.push(CONTENT_CLOSED);
+  if (closedDraftStatus(c)) blockers.push(CONTENT_CLOSED);
   const humanBlocker = await assignmentHumanApprovalBlocker(
     tx,
     scope,

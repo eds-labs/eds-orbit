@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, list, update } from "../../../shared.ts";
+import { closedDraftStatus } from "../approval-state.ts";
 import { TERMINAL_RUN } from "../agents/assignment-runs.ts";
 import { awaitsScheduling } from "../agents/veto.ts";
 import {
@@ -154,7 +155,11 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
   const archive: Row[] = [];
   const kept: { row: Row; reason: KeepReason }[] = [];
   for (const row of content) {
-    if (!(DRAFT_STATUSES as readonly string[]).includes(data(row).status))
+    const v = data(row);
+    if (
+      closedDraftStatus(v) ||
+      !(DRAFT_STATUSES as readonly string[]).includes(v.status)
+    )
       continue;
     const reason = keepReason(row);
     if (reason) kept.push({ row, reason });
@@ -185,7 +190,9 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
       !rows.every(
         (row) =>
           archiving.has(row.id) ||
-          SETTLED_CONTENT.includes(String(data(row).status)),
+          SETTLED_CONTENT.includes(
+            closedDraftStatus(data(row)) ?? String(data(row).status),
+          ),
       )
     )
       return "UNSETTLED_CONTENT";
@@ -357,7 +364,7 @@ export async function restoreDraftCleanup(
     for (const row of await list(tx, scope, kind)) {
       const v = data(row);
       if (
-        v.status !== "archived" ||
+        (kind === "content" ? closedDraftStatus(v) : v.status) !== "archived" ||
         v.cleanupId !== cleanupId ||
         typeof v.statusBeforeArchive !== "string"
       )

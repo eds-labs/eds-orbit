@@ -1011,15 +1011,94 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
     expect(await audits("content.owner_archived")).toHaveLength(1);
   });
 
-  it("archives an expired draft as SLOT_PASSED", async () => {
+  it.each([
+    ["publications", "published"],
+    ["publications", "blocked_dependency"],
+    ["postiz_drafts", "accepted"],
+  ])("omits an expired draft held by %s in state %s", async (kind, status) => {
     const { drafts, slots } = await leftForOwner();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(at(slots[0]!.at, 5));
+    const [held, available] = drafts;
+    await h.run(async (tx) => {
+      await create(tx, project.owner, kind, { contentId: held!.id, status });
+      await create(tx, project.owner, "publications", {
+        contentId: available!.id,
+        status: "canceled",
+      });
+    });
+
+    const waiting = await h.run((tx) =>
+      draftsAwaitingOwner(tx, project.owner, { includeExpired: true }),
+    );
+    expect(waiting.map((draft) => draft.id)).toEqual([available!.id]);
+    expect(await code(decide(project.owner, held!, "archive"))).toBe(
+      "DRAFT_HAS_PUBLICATION",
+    );
+    expect(await decide(project.owner, available!, "archive")).toMatchObject({
+      status: "archived",
+    });
+  });
+
+  it("honors past owner decisions on drafts a profile edit reopened", async () => {
+    const { drafts } = await leftForOwner();
+    const [rejected, archived] = drafts;
+    await decide(project.owner, rejected!, "reject");
+    await decide(project.owner, archived!, "archive");
+    const reopened = await h.run(async (tx) => {
+      const rows = [];
+      for (const draft of drafts) {
+        const row = await entity(tx, project.owner, "content", draft.id);
+        rows.push(await update(tx, project.owner, row, {
+          ...data(row),
+          status: "needs_review",
+          profileInvalidatedFrom: 1,
+          profileInvalidatedTo: 2,
+        }));
+      }
+      return rows;
+    });
+
+    expect(await h.run((tx) =>
+      draftsAwaitingOwner(tx, project.owner, { includeExpired: true }),
+    )).toEqual([]);
+    const history = await h.run((tx) =>
+      draftDecisionHistory(tx, project.owner, { includeHidden: true }),
+    );
+    expect(history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: rejected!.id, state: "rejected" }),
+      expect.objectContaining({ id: archived!.id, state: "archived", hidden: true }),
+    ]));
+    for (const row of reopened) {
+      expect(await code(release(project.owner, row))).toBe("CONTENT_CLOSED");
+      const checked = await h.run((tx) =>
+        preflight(tx, project.owner, row.id, { test: true }),
+      );
+      expect(checked.blockers).toContain("CONTENT_CLOSED");
+    }
+    const preview = await h.run((tx) =>
+      archiveOldDrafts(tx, project.owner, { preview: true }),
+    );
+    expect(preview.items).toEqual([]);
+  });
+
+  it("rejects and archives expired drafts with no active handoff", async () => {
+    const { drafts, slots } = await leftForOwner();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(at(slots[1]!.at, 5));
     await decide(project.owner, drafts[0]!, "archive");
-    expect((await contents())[0]).toMatchObject({
+    await decide(project.owner, drafts[1]!, "reject");
+    const [archived, rejected] = await contents();
+    expect(archived).toMatchObject({
       status: "archived",
       archiveReason: "SLOT_PASSED",
     });
+    expect(rejected).toMatchObject({ status: "rejected" });
+    const waiting = await h.run((tx) =>
+      draftsAwaitingOwner(tx, project.owner, { includeExpired: true }),
+    );
+    expect(waiting).toEqual([]);
+    expect(await publications()).toEqual([]);
   });
 
   it("refuses to reject a released post: Stop is the way back", async () => {

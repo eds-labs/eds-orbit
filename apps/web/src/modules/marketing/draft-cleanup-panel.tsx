@@ -178,7 +178,7 @@ const sessionStore = () => {
  */
 export function DraftCleanup() {
   const { locale, project, isOwner, canEdit, refresh } = useWorkspace();
-  const mutation = useMutation(refresh);
+  const mutation = useMutation();
   const channels = useChannelDirectory();
   const [state, setState] = useState<CleanupState>(initialCleanupState);
   // Saving starts only once this project's list was read, so the empty
@@ -193,10 +193,12 @@ export function DraftCleanup() {
       saveCleanups(sessionStore(), project.id, state.done);
   }, [loadedFor, project.id, state.done]);
   const call: CleanupCall = (name, input) => action(project.id, name, input);
-  const step = (next: () => Promise<CleanupState>) =>
-    mutation.run(next).then((result) => {
-      if (result) setState(result);
-    });
+  const step = async (next: () => Promise<CleanupState>, updateList = false) => {
+    const result = await mutation.run(next);
+    if (!result) return;
+    setState(result);
+    if (updateList && !result.preview) refresh();
+  };
   return (
     <DraftCleanupView
       role={isOwner ? "owner" : canEdit ? "editor" : "viewer"}
@@ -205,12 +207,12 @@ export function DraftCleanup() {
       pending={mutation.pending}
       error={mutation.error}
       onPreview={() => step(() => openCleanupPreview(state, call))}
-      onConfirm={() => step(() => confirmCleanup(state, call))}
+      onConfirm={() => step(() => confirmCleanup(state, call), true)}
       onClose={() => {
         mutation.clear();
         setState((s) => ({ ...s, preview: null, changed: false }));
       }}
-      onUndo={(cleanupId) => step(() => undoCleanup(state, call, cleanupId))}
+      onUndo={(cleanupId) => step(() => undoCleanup(state, call, cleanupId), true)}
       channels={channels}
     />
   );

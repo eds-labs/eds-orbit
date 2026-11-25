@@ -423,6 +423,25 @@ describe.skipIf(!enabled)(
       expect(await state(await fixture())).toMatchSnapshot();
     });
 
+    it("keeps a rejected draft closed when a source changes", async () => {
+      const f = await fixture();
+      await run(f.scope, async (tx) => {
+        const evidenceId = [...f.labels].find(
+          ([, label]) => label === "evidence-source-item",
+        )![0];
+        const draft = await create(tx, f.scope, "content", {
+          status: "rejected",
+          evidenceId,
+        });
+        await scenarios["ingest of a changed document (source_changed)"]!(tx, f);
+        const updated = await tx.entity.findUniqueOrThrow({ where: { id: draft.id } });
+        expect(updated.data).toMatchObject({
+          status: "rejected",
+          dependencyInvalidated: true,
+        });
+      });
+    });
+
     it.each(Object.keys(scenarios))("%s", async (scenario) => {
       const f = await fixture();
       await run(f.scope, (tx) => scenarios[scenario]!(tx, f));

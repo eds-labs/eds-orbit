@@ -25,10 +25,7 @@ import {
 } from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
 import { bookedDraft, releasedPublication } from "./handoff-lookup.ts";
-import {
-  CONTENT_CLOSED,
-  contentClosed,
-} from "../pipeline/content-decisions.ts";
+import { refuseClosedContent } from "../pipeline/content-decisions.ts";
 import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import {
   draftDelivery,
@@ -142,7 +139,7 @@ export async function releaseAssignmentDraft(
     };
   }
   // A draft the owner (or the review) rejected or archived stays closed.
-  if (contentClosed(c.status)) throw new DomainError(CONTENT_CLOSED, 409);
+  refuseClosedContent(c);
   // Blog and newsletter drafts are saved to Drive, never published.
   if (c.type !== "social") throw new DomainError("DRAFT_NOT_PUBLISHABLE", 409);
   if (c.status !== "needs_review" || draftReplaced(c))

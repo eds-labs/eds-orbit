@@ -5,6 +5,7 @@ import { AppLink } from "@/platform/ui/app-link";
 import {
   approvalLanes,
   approvalSlots,
+  closedDraftStatus,
   groupByBase,
   hasActiveHandoff,
   openExceptions,
@@ -1403,23 +1404,24 @@ export function ContentDetail({
           </>
         )}
       </div>
-      {APPROVAL_STATUSES.includes(String(current.data.status)) && (
-        <DraftDecisionSection
-          content={current}
-          canDecide={isOwner}
-          handedOn={hasActiveHandoff(
-            current.id,
-            publications.data?.items ?? [],
-            handoffs.data?.items ?? [],
-          )}
-          de={locale === "de"}
-          onDone={() => {
-            refresh();
-            resource.refresh();
-            onClose();
-          }}
-        />
-      )}
+      {!closedDraftStatus(current.data) &&
+        APPROVAL_STATUSES.includes(String(current.data.status)) && (
+          <DraftDecisionSection
+            content={current}
+            canDecide={isOwner}
+            handedOn={hasActiveHandoff(
+              current.id,
+              publications.data?.items ?? [],
+              handoffs.data?.items ?? [],
+            )}
+            de={locale === "de"}
+            onDone={() => {
+              refresh();
+              resource.refresh();
+              onClose();
+            }}
+          />
+        )}
     </Modal>
   );
 }
@@ -1931,7 +1933,11 @@ export function ApprovalInbox() {
       {...extra}
     />
   );
-  const loading = content.loading && !content.data;
+  // Keep cleanup confirmation and undo mounted while this project's list reloads.
+  const loading =
+    content.loading &&
+    !content.data &&
+    !content.path?.startsWith(collectionPath(project.id, "content?"));
   return (
     <>
       <PageHead
@@ -2042,7 +2048,7 @@ export function ApprovalInbox() {
                   <h2 id="approvals-cleanup-title">{words.cleanup}</h2>
                 </div>
               </div>
-              <DraftCleanup />
+              <DraftCleanup key={project.id} />
               {!isOwner && <p className="panel-note">{words.cleanupHint}</p>}
               <AwaitingOwnerDraftList
                 items={expired}

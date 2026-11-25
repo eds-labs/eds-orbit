@@ -46,14 +46,31 @@ export type LaneHandoff = {
 const DONE_HANDOFF = ["canceled", "failed"];
 const PUBLISHED = ["published", "published_test"];
 
+// Mirrors the API's closedDraftStatus for legacy rows reset by a profile edit.
+export function closedDraftStatus(content: Record<string, unknown>) {
+  if (content.status === "rejected" || content.status === "archived")
+    return content.status;
+  if (content.status !== "needs_review") return null;
+  const decision = (content.ownerDecision as { action?: unknown } | undefined)
+    ?.action;
+  if (decision === "rejected") return "rejected";
+  if (
+    decision === "archived" ||
+    decision === "discarded" ||
+    (typeof content.archivedAt === "string" &&
+      typeof content.profileInvalidatedFrom === "number")
+  )
+    return "archived";
+  return null;
+}
+
 /** The lane of one content row; first match wins (server: approvalLane). */
 export function approvalLane(
   content: Record<string, unknown>,
   context: { handoffs?: readonly LaneHandoff[]; expired?: boolean } = {},
 ): ApprovalLane {
   if (content.supersededBy || content.retiredWithRunId) return "history";
-  if (content.status === "rejected" || content.status === "archived")
-    return "history";
+  if (closedDraftStatus(content)) return "history";
   const active = (context.handoffs ?? []).filter(
     (h) => !DONE_HANDOFF.includes(String(h.status)),
   );
@@ -146,8 +163,12 @@ export function approvalLanes(
         typeof c.data.assignmentRunId === "string" &&
         Number.isFinite(slot) &&
         now >= slot;
+      const closed = closedDraftStatus(c.data);
       return {
-        content: c,
+        content:
+          closed && closed !== c.data.status
+            ? { ...c, data: { ...c.data, status: closed } }
+            : c,
         publications: own,
         postizDrafts: handed,
         lane: approvalLane(c.data, {

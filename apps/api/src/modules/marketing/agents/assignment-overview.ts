@@ -1,5 +1,6 @@
 import { draftReplaced } from "./draft-state.ts";
-import { baseContentId } from "../approval-state.ts";
+import { baseContentId, closedDraftStatus } from "../approval-state.ts";
+import { contentWithHandoffs } from "../pipeline/content-decisions.ts";
 import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
@@ -470,7 +471,8 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
  * longer catches it up; it can be rejected or archived). Expired drafts are
  * listed only with `includeExpired`, for up to `EXPIRED_DAYS`; attention and
  * the agent hub count pending drafts only. Earliest slot first. Empty while
- * Orbit Agents is off.
+ * Orbit Agents is off. An expired draft held by a publication or Postiz
+ * draft belongs to the handoff or history, even if it still says needs_review.
  */
 export const EXPIRED_DAYS = 14;
 export async function draftsAwaitingOwner(
@@ -497,9 +499,13 @@ export async function draftsAwaitingOwner(
     return (
       typeof d.assignmentRunId === "string" &&
       d.type === "social" &&
+      !closedDraftStatus(d) &&
       !draftReplaced(d)
     );
   });
+  const held = options.includeExpired
+    ? await contentWithHandoffs(tx, scope, rows.map((row) => row.id))
+    : null;
   const missions = await rowsById(
     tx,
     scope,
@@ -539,7 +545,10 @@ export async function draftsAwaitingOwner(
     )
       continue;
     const expired = slotExpired(new Date(slotAt), now);
-    if (expired && (!options.includeExpired || Date.parse(slotAt) < oldest))
+    if (
+      expired &&
+      (!options.includeExpired || Date.parse(slotAt) < oldest || held?.has(row.id))
+    )
       continue;
     const text = String(d.body ?? "")
       .replace(/\s+/g, " ")
@@ -625,6 +634,9 @@ export async function draftDecisionHistory(
       OR: [
         { data: { path: ["status"], equals: "rejected" } },
         { data: { path: ["status"], equals: "archived" } },
+        ...["rejected", "archived", "discarded"].map((action) => ({
+          data: { path: ["ownerDecision", "action"], equals: action },
+        })),
       ],
     },
     orderBy: { updatedAt: "desc" },
@@ -680,7 +692,9 @@ export async function draftDecisionHistory(
   for (const row of closed) {
     const d = data(row);
     const decision = d.ownerDecision;
+    const status = closedDraftStatus(d);
     if (
+      !status ||
       typeof d.assignmentRunId !== "string" ||
       !decision?.action ||
       Date.parse(decision.at) < since.valueOf() ||
@@ -689,8 +703,7 @@ export async function draftDecisionHistory(
       continue;
     items.push({
       ...base(row),
-      state:
-        d.status === "rejected" ? ("rejected" as const) : ("archived" as const),
+      state: status,
       decidedAt: String(decision.at),
       reason: typeof decision.reason === "string" ? decision.reason : null,
       archiveReason: d.archiveReason ?? null,

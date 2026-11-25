@@ -13,10 +13,7 @@ import {
   hash,
   update,
 } from "../../../shared.ts";
-import {
-  CONTENT_CLOSED,
-  contentClosed,
-} from "../pipeline/content-decisions.ts";
+import { refuseClosedContent } from "../pipeline/content-decisions.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import { agentsEnabled } from "./assignments.ts";
 import { draftReplaced } from "./draft-state.ts";
@@ -56,7 +53,7 @@ export async function editAssignmentDraft(
   const c = data(row);
   if (typeof c.assignmentRunId !== "string")
     throw new DomainError("NOT_FOUND", 404);
-  if (contentClosed(c.status)) throw new DomainError(CONTENT_CLOSED, 409);
+  refuseClosedContent(c);
   if (
     c.status !== "needs_review" ||
     draftReplaced(c) ||

@@ -56,6 +56,29 @@ export type LaneHandoff = {
 const DONE_HANDOFF = ["canceled", "failed"];
 const PUBLISHED = ["published", "published_test"];
 
+/** A handoff that prevents an owner from deciding the content as a draft. */
+export function handoffHoldsDraft(status: unknown): boolean {
+  return !DONE_HANDOFF.includes(String(status));
+}
+
+/** Profile changes once reset closed content to needs_review, retaining its decision. */
+export function closedDraftStatus(content: Record<string, unknown>) {
+  if (content.status === "rejected" || content.status === "archived")
+    return content.status;
+  if (content.status !== "needs_review") return null;
+  const decision = (content.ownerDecision as { action?: unknown } | undefined)
+    ?.action;
+  if (decision === "rejected") return "rejected";
+  if (
+    decision === "archived" ||
+    decision === "discarded" ||
+    (typeof content.archivedAt === "string" &&
+      typeof content.profileInvalidatedFrom === "number")
+  )
+    return "archived";
+  return null;
+}
+
 /** The lane of one content row; first match wins (see ApprovalLane). */
 export function approvalLane(
   content: Record<string, unknown>,
@@ -63,10 +86,9 @@ export function approvalLane(
 ): ApprovalLane {
   // Replaced: a revision superseded it or the owner retried its run.
   if (content.supersededBy || content.retiredWithRunId) return "history";
-  if (content.status === "rejected" || content.status === "archived")
-    return "history";
-  const active = (context.handoffs ?? []).filter(
-    (h) => !DONE_HANDOFF.includes(String(h.status)),
+  if (closedDraftStatus(content)) return "history";
+  const active = (context.handoffs ?? []).filter((h) =>
+    handoffHoldsDraft(h.status),
   );
   if (active.length)
     return active.some(

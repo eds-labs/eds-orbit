@@ -6,6 +6,7 @@ import {
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity, update } from "../../../shared.ts";
+import { closedDraftStatus, handoffHoldsDraft } from "../approval-state.ts";
 import { draftReplaced } from "../agents/draft-state.ts";
 import type { RunSlot } from "../agents/veto.ts";
 import { invalidateContent } from "./content-invalidation.ts";
@@ -45,45 +46,45 @@ export type DraftDecisionInput = z.infer<typeof draftDecisionInput>;
 export type DraftDecision = "reject" | "discard" | "archive";
 
 /** Content an owner closed: it never goes out again. */
-export const CLOSED_CONTENT = ["rejected", "archived"] as const;
 export const CONTENT_CLOSED = "CONTENT_CLOSED";
 export const DRAFT_NOT_DECIDABLE = "DRAFT_NOT_DECIDABLE";
 export const DRAFT_HAS_PUBLICATION = "DRAFT_HAS_PUBLICATION";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// Publications and Postiz drafts that are over: they hold nothing any more.
-const DONE_PUBLICATION = ["canceled", "failed"];
-const DONE_POSTIZ_DRAFT = ["canceled", "failed"];
 const ACTION = {
   reject: "rejected",
   discard: "discarded",
   archive: "archived",
 } as const;
 
-/** Whether content is closed by an owner decision or the review (rejected, archived). */
-export function contentClosed(status: unknown) {
-  return (CLOSED_CONTENT as readonly string[]).includes(String(status));
-}
-
 /** Refuses closed content (`CONTENT_CLOSED`, 409). */
 export function refuseClosedContent(content: Record<string, unknown>) {
-  if (contentClosed(content.status)) throw new DomainError(CONTENT_CLOSED, 409);
+  if (closedDraftStatus(content)) throw new DomainError(CONTENT_CLOSED, 409);
 }
 
-/** The content's publications and Postiz draft handoffs that are not over. */
-async function activeHandoffs(tx: DbTx, scope: Scope, contentId: string) {
+/** Which content rows are held by a publication or a Postiz draft. */
+export async function contentWithHandoffs(
+  tx: DbTx,
+  scope: Scope,
+  contentIds: readonly string[],
+) {
+  if (!contentIds.length) return new Set<string>();
+
   const rows = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       kind: { in: ["publications", "postiz_drafts"] },
-      data: { path: ["contentId"], equals: contentId },
+      OR: contentIds.map((id) => ({
+        data: { path: ["contentId"], equals: id },
+      })),
     },
+    select: { data: true },
   });
-  return rows.filter((row) =>
-    row.kind === "publications"
-      ? !DONE_PUBLICATION.includes(String(data(row).status))
-      : !DONE_POSTIZ_DRAFT.includes(String(data(row).status)),
+  return new Set(
+    rows
+      .filter((row) => handoffHoldsDraft(data(row).status))
+      .map((row) => String(data(row).contentId)),
   );
 }
 
@@ -152,6 +153,7 @@ export async function decideDraft(
   const row = await entity(tx, scope, "content", contentId);
   const c = data(row);
   const action = ACTION[decision];
+  const closed = closedDraftStatus(c);
   const now = new Date();
   const result = (
     outcome: DraftDecisionResult["result"],
@@ -159,17 +161,17 @@ export async function decideDraft(
   ): DraftDecisionResult => ({
     result: outcome,
     contentId,
-    status: String(data(saved).status),
+    status: closedDraftStatus(data(saved)) ?? String(data(saved).status),
     action,
     version: saved.version,
   });
 
   // Repeating a recorded decision changes nothing.
   if (
-    (decision === "archive" && c.ownerDecision?.hiddenAt) ||
-    (decision !== "archive" &&
-      c.ownerDecision?.action === action &&
-      contentClosed(c.status))
+    closed &&
+    (decision === "archive"
+      ? c.ownerDecision?.hiddenAt
+      : c.ownerDecision?.action === action)
   )
     return result("unchanged", row);
   if (row.version !== input.version)
@@ -178,13 +180,13 @@ export async function decideDraft(
   // A decided item (rejected, discarded, or closed by the review) is only
   // hidden from the active overview. Released posts are not changed here:
   // their content is bound to its approved package until it goes out.
-  const decided = contentClosed(c.status);
-  if (decision === "archive" && decided) {
+  if (decision === "archive" && closed) {
     const saved = await update(tx, scope, row, {
       ...c,
+      status: closed,
       ownerDecision: {
         ...(c.ownerDecision ?? {
-          action: c.status === "rejected" ? "rejected" : "archived",
+          action: closed,
           by: null,
           at: now.toISOString(),
         }),
@@ -193,18 +195,19 @@ export async function decideDraft(
       },
     });
     await audit(tx, scope, "content.owner_archived", contentId, {
-      status: c.status,
+      status: closed,
       hidden: true,
     });
     return result("decided", saved);
   }
 
   if (
+    closed ||
     !(DRAFT_STATUSES as readonly string[]).includes(String(c.status)) ||
     draftReplaced(c)
   )
     throw new DomainError(DRAFT_NOT_DECIDABLE, 409);
-  if ((await activeHandoffs(tx, scope, contentId)).length)
+  if ((await contentWithHandoffs(tx, scope, [contentId])).has(contentId))
     throw new DomainError(DRAFT_HAS_PUBLICATION, 409);
 
   const slot = await plannedSlot(tx, scope, c);

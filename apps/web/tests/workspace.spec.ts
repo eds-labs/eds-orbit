@@ -1199,6 +1199,86 @@ test("editable local brief, private community groups, calendar blocks and owner 
   });
 });
 
+test("marketing cleanup keeps the preview and undo through list reloads", async ({ page }) => {
+  await login(page);
+  const projectId = await newProject(page, "EDS Labs · marketing cleanup");
+  const contentId = randomUUID();
+  const cleanupId = randomUUID();
+  const title = "An expired draft for browser acceptance";
+  const preview = {
+    preview: true,
+    cleanupId: null,
+    content: { total: 1, alreadyInPostiz: 0 },
+    missions: { total: 0 },
+    kept: { total: 0 },
+    items: [{ contentId, title, channel: null, action: "archive" }],
+  };
+  let archived = false;
+  const now = new Date();
+  await page.route(`**/api/projects/${projectId}/content?revision=*`, async (route) => {
+    await route.fulfill({
+      json: {
+        items: [{
+          id: contentId,
+          version: archived ? 2 : 1,
+          data: {
+            status: archived ? "archived" : "needs_review",
+            title,
+            assignmentRunId: randomUUID(),
+            scheduledAt: new Date(now.getTime() - 86_400_000).toISOString(),
+          },
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        }],
+      },
+    });
+  });
+  await page.route(`**/api/projects/${projectId}/actions/archive-old-drafts`, async (route) => {
+    if (route.request().postDataJSON().preview) {
+      await route.fulfill({ json: preview });
+      return;
+    }
+    expect(route.request().postDataJSON()).toEqual({
+      confirm: true,
+      expected: { content: 1, missions: 0, kept: 0 },
+    });
+    archived = true;
+    await route.fulfill({ json: { ...preview, preview: false, cleanupId } });
+  });
+  await page.route(`**/api/projects/${projectId}/actions/restore-draft-cleanup`, async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ cleanupId });
+    archived = false;
+    await route.fulfill({ json: { cleanupId, restored: { content: 1, missions: 0 } } });
+  });
+
+  await open(page, projectId, "approvals");
+  const draft = page.getByRole("button", { name: title, exact: true });
+  await expect(draft).toBeVisible();
+  await page.getByRole("button", { name: "Archive old drafts" }).click();
+  const dialog = page.getByRole("dialog", { name: "Archive old drafts" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByText("Each draft (1)").click();
+  await expect(dialog.getByText(title)).toBeVisible();
+
+  const contentReload = () => page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/projects/${projectId}/content`,
+  );
+  const afterArchive = contentReload();
+  await dialog.getByRole("button", { name: "Archive", exact: true }).click();
+  await afterArchive;
+  await expect(draft).toBeHidden();
+  const undo = page.getByRole("button", { name: "Undo", exact: true });
+  await expect(undo).toBeVisible();
+  await page.reload();
+  await expect(undo).toBeVisible();
+
+  const afterUndo = contentReload();
+  await undo.click();
+  await afterUndo;
+  await expect(draft).toBeVisible();
+  await expect(page.getByText("1 draft restored.", { exact: true })).toBeVisible();
+});
+
 test("managed index refresh starts in one click and automation is a separate opt-in", async ({ page }) => {
   await login(page);
   const projectId = await newProject(page, "EDS Labs · managed index refresh");
