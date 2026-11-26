@@ -89,7 +89,7 @@ const notFound = () => new DomainError("NOT_FOUND", 404);
 const discard = (scope: Scope, ...ids: string[]) =>
   Promise.all(ids.map((id) => deleteFile(scope, id).catch(() => undefined)));
 
-/** Accepts an image, stores its original and JPEG rendition, and lists it. */
+/** Stores validated media and the JPEG rendition for images. */
 export async function uploadMedia(
   scope: Scope,
   input: { bytes: Uint8Array; mime: string; name?: unknown },
@@ -97,7 +97,7 @@ export async function uploadMedia(
   if (input.mime.trim().toLowerCase() !== SOCIAL_VIDEO_MIME) return (await ingestMedia(scope, input)).media;
 
   const storage = requireFiles();
-  if (storage.backend !== "s3") throw new DomainError("SOCIAL_VIDEO_STORAGE_REQUIRED", 409);
+  if (!storage.socialVideoStore) throw new DomainError("SOCIAL_VIDEO_STORAGE_REQUIRED", 409);
   if (input.bytes.byteLength > Math.min(SOCIAL_VIDEO_MAX_BYTES, storage.maxBytes))
     throw new DomainError("FILE_TOO_LARGE", 413);
 

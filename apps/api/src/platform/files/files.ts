@@ -10,12 +10,12 @@ import { s3Store, type ObjectStore } from "./s3.ts";
 import { databaseStore } from "./db-store.ts";
 
 /**
- * Platform files (WP4.6). Binary content is encrypted (crypto.ts) and kept
- * in a separate S3-compatible bucket (s3.ts); the `File` table holds its
+ * Platform files (WP4.6). Binary content is encrypted (crypto.ts) before it
+ * goes to PostgreSQL or an S3-compatible bucket. The `File` table holds the
  * metadata in the project scope. Modules store and read files through this
  * service; members reach them only through the authorized routes.
  *
- * Off unless ORBIT_FILES is "true" and the bucket is configured. Deleting
+ * Off unless ORBIT_FILES is "true" and storage is configured. Deleting
  * marks the row first (no reader sees the file again), then removes the
  * object and the row; the hourly cleanup retries what failed. A file with
  * `retainUntil` in the future cannot be deleted (409 FILE_RETAINED); the
@@ -79,19 +79,23 @@ export const maxFileBytes = () => loadConfig().FILES_MAX_BYTES;
 const TYPE_CHECKS = { ...TYPES, ...STORAGE_ONLY_TYPES };
 
 type FilesConfig = {
-  backend: "database" | "s3";
   maxBytes: number;
   /** What one project may store in all, files marked deleted included. */
   quotaBytes: number;
   keyHex: string;
-  /** The project's store: its rows in the database, or the bucket. */
   store: (scope: Scope) => ObjectStore;
+  socialVideoStore: (() => ObjectStore) | null;
 };
 
 let override: ObjectStore | null = null;
-/** Tests replace the bucket with a double; null restores the configured one. */
-export function setObjectStoreForTests(store: ObjectStore | null) {
-  override = store;
+let videoOverride: ObjectStore | null = null;
+/** Tests can replace either store; null restores the configured one. */
+export function setObjectStoreForTests(
+  store: ObjectStore | null,
+  target: "default" | "social-video" = "default",
+) {
+  if (target === "social-video") videoOverride = store;
+  else override = store;
 }
 
 /**
@@ -101,32 +105,30 @@ export function setObjectStoreForTests(store: ObjectStore | null) {
 export function filesConfig(): FilesConfig | null {
   const c = loadConfig();
   if (c.ORBIT_FILES !== "true" || !c.FILES_ENCRYPTION_KEY) return null;
-  const base = {
-    backend: c.FILES_BACKEND,
+  const bucket =
+    c.FILES_S3_ENDPOINT &&
+    c.FILES_S3_BUCKET &&
+    c.FILES_S3_ACCESS_KEY_ID &&
+    c.FILES_S3_SECRET_ACCESS_KEY
+      ? {
+          endpoint: c.FILES_S3_ENDPOINT,
+          bucket: c.FILES_S3_BUCKET,
+          region: c.FILES_S3_REGION,
+          accessKeyId: c.FILES_S3_ACCESS_KEY_ID,
+          secretAccessKey: c.FILES_S3_SECRET_ACCESS_KEY,
+        }
+      : null;
+  const defaultBucket = c.FILES_BACKEND === "s3" ? bucket : null;
+  if (c.FILES_BACKEND === "s3" && !defaultBucket) return null;
+  return {
     maxBytes: c.FILES_MAX_BYTES,
     quotaBytes: c.FILES_PROJECT_QUOTA_BYTES,
     keyHex: c.FILES_ENCRYPTION_KEY,
-  };
-  if (c.FILES_BACKEND === "database")
-    return { ...base, store: (scope) => override ?? databaseStore(scope) };
-  if (
-    !c.FILES_S3_ENDPOINT ||
-    !c.FILES_S3_BUCKET ||
-    !c.FILES_S3_ACCESS_KEY_ID ||
-    !c.FILES_S3_SECRET_ACCESS_KEY
-  )
-    return null;
-  return {
-    ...base,
-    store: () =>
-      override ??
-      s3Store({
-        endpoint: c.FILES_S3_ENDPOINT!,
-        bucket: c.FILES_S3_BUCKET!,
-        region: c.FILES_S3_REGION,
-        accessKeyId: c.FILES_S3_ACCESS_KEY_ID!,
-        secretAccessKey: c.FILES_S3_SECRET_ACCESS_KEY!,
-      }),
+    store: (scope) =>
+      override ?? (defaultBucket ? s3Store(defaultBucket) : databaseStore(scope)),
+    socialVideoStore: bucket
+      ? () => videoOverride ?? (defaultBucket ? override : null) ?? s3Store(bucket)
+      : null,
   };
 }
 
@@ -149,6 +151,21 @@ type FileRow = {
   createdAt: Date;
   retainUntil: Date | null;
 };
+
+function contentStore(
+  config: FilesConfig,
+  scope: Scope,
+  file: Pick<FileRow, "moduleId" | "mime">,
+) {
+  // Social MP4s have always required S3. The immutable metadata also routes
+  // reads and retries after deletion, including for videos saved before this change.
+  if (file.moduleId === "social" && file.mime === "video/mp4") {
+    if (!config.socialVideoStore)
+      throw new DomainError("SOCIAL_VIDEO_STORAGE_REQUIRED", 409);
+    return config.socialVideoStore();
+  }
+  return config.store(scope);
+}
 
 /** What a client may see of a file: never its object key. */
 export const fileView = (row: FileRow) => ({
@@ -225,10 +242,12 @@ export async function storeFile(
   if (input.bytes.byteLength > config.maxBytes)
     throw new DomainError("FILE_TOO_LARGE", 413);
   const mime = input.mime.split(";")[0]!.trim().toLowerCase();
-  if (mime === "video/mp4" && (input.moduleId !== "social" || config.backend !== "s3")) throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
+  if (mime === "video/mp4" && input.moduleId !== "social")
+    throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
   const check = TYPE_CHECKS[mime];
   if (check === undefined || (check && !check(input.bytes)))
     throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
+  const store = contentStore(config, scope, { moduleId: input.moduleId, mime });
   const size = input.bytes.byteLength;
   const overQuota = async (tx: DbTx) =>
     (await projectBytes(tx, scope)) + size > config.quotaBytes;
@@ -238,7 +257,6 @@ export async function storeFile(
   const id = randomUUID();
   const key = `projects/${scope.projectId}/${input.moduleId}/${id}`;
   const digest = sha256(input.bytes);
-  const store = config.store(scope);
   await store.put(key, encryptFile(input.bytes, id, config.keyHex));
   try {
     const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
@@ -296,7 +314,7 @@ export async function readFile(scope: Scope, id: string) {
   const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     fileRow(tx, scope, id),
   );
-  const sealed = await config.store(scope).get(row.key);
+  const sealed = await contentStore(config, scope, row).get(row.key);
   if (!sealed) throw new DomainError("FILE_CONTENT_MISSING", 404);
   let bytes: Uint8Array;
   try {
@@ -316,9 +334,9 @@ export async function readFile(scope: Scope, id: string) {
 }
 
 /** Removes the object and the row of one marked file; false when that failed. */
-async function purge(scope: Scope, store: ObjectStore, row: FileRow) {
+async function purge(scope: Scope, config: FilesConfig, row: FileRow) {
   try {
-    await store.delete(row.key);
+    await contentStore(config, scope, row).delete(row.key);
   } catch {
     return false;
   }
@@ -346,7 +364,7 @@ export async function deleteFile(scope: Scope, id: string) {
     return found;
   });
   // A failure here is retried by the cleanup; the file is gone either way.
-  await purge(scope, config.store(scope), row);
+  await purge(scope, config, row);
   return { id, deleted: true };
 }
 
@@ -373,8 +391,7 @@ export async function purgeMarkedFiles(scope: Scope, ids: string[]) {
       where: { id: { in: ids }, projectId: scope.projectId, deletedAt: { not: null } },
     }),
   );
-  const store = config.store(scope);
-  for (const row of rows) await purge(scope, store, row);
+  for (const row of rows) await purge(scope, config, row);
 }
 
 // One cleanup per project at most this often.
@@ -400,7 +417,6 @@ export const fileCleanup: PeriodicTask = {
         take: 50,
       }),
     );
-    const store = config.store(scope);
-    for (const row of marked) await purge(scope, store, row);
+    for (const row of marked) await purge(scope, config, row);
   },
 };

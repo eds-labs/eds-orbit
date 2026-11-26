@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   afterAll,
   afterEach,
@@ -8,7 +9,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { closeDatabase } from "../../../packages/db/src/index.ts";
+import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { setSocialFetchForTests } from "../src/modules/social/accounts/http.ts";
 import {
   connectManualTikTok,
@@ -24,6 +25,7 @@ import { dispatchPost } from "../src/modules/social/dispatch/dispatch.ts";
 import { resolvePublication } from "../src/modules/social/dispatch/control.ts";
 import {
   mediaContent,
+  removeMedia,
   uploadMedia,
 } from "../src/modules/social/media/library.ts";
 import { publishNow } from "../src/modules/social/posts/approval.ts";
@@ -47,7 +49,7 @@ describe.skipIf(!enabled)("company channel publishing", () => {
     Object.assign(process.env, {
       ORBIT_SOCIAL: "true",
       ORBIT_FILES: "true",
-      FILES_BACKEND: "s3",
+      FILES_BACKEND: "database",
       FILES_S3_ENDPOINT: "https://example.invalid",
       FILES_S3_BUCKET: "synthetic-social-storage",
       FILES_S3_ACCESS_KEY_ID: "synthetic",
@@ -64,17 +66,43 @@ describe.skipIf(!enabled)("company channel publishing", () => {
       async delete(key) {
         objects.delete(key);
       },
-    });
+    }, "social-video");
     project = await createSocialProject();
     other = await createSocialProject();
   });
 
   afterEach(() => setSocialFetchForTests(null));
   afterAll(async () => {
-    setObjectStoreForTests(null);
+    setObjectStoreForTests(null, "social-video");
     await project?.cleanup();
     await other?.cleanup();
     await closeDatabase();
+  });
+
+  it("stores and removes Social videos in S3 while existing file types use PostgreSQL", async () => {
+    const photo = await uploadMedia(project.owner, {
+      bytes: readFileSync(new URL("./fixtures/social/photo-800x600.png", import.meta.url)),
+      mime: "image/png",
+      name: "photo.png",
+    });
+    expect(objects.size).toBe(0);
+    const asset = await uploadMedia(project.owner, {
+      bytes,
+      mime: "video/mp4",
+      name: "demo.mp4",
+    });
+    const [key] = objects.keys();
+    expect(objects.size).toBe(1);
+    expect(key).toContain(`projects/${project.owner.projectId}/social/`);
+    const blobs = await scoped(project.owner.workspaceId, project.owner.projectId, (tx) =>
+      tx.fileBlob.findMany({ select: { key: true } }),
+    );
+    expect(blobs).toHaveLength(2);
+    expect(blobs.some((blob) => blob.key === key)).toBe(false);
+    expect((await mediaContent(project.owner, photo.id, "original")).mime).toBe("image/jpeg");
+    expect(await removeMedia(project.owner, asset.id)).toMatchObject({ removed: "deleted" });
+    expect(objects.has(key!)).toBe(false);
+    await expect(mediaContent(project.owner, asset.id, "original")).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("keeps a TikTok post open after approval and only settles a link for the same profile", async () => {
