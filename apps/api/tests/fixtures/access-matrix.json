@@ -3935,6 +3935,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:409"
   },
+  "POST /api/projects/{projectId}/actions/knowledge-github-refresh-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/knowledge-import-commit": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3960,6 +3968,14 @@
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-index-automation": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-operations-settings": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",

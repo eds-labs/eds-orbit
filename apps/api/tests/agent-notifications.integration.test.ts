@@ -102,6 +102,13 @@ import {
   planDailyReport,
 } from "../src/modules/agents/notifications.ts";
 import { sendNotification } from "../src/platform/notifications/sender.ts";
+import {
+  knowledgeIssueViews,
+  lockKnowledge,
+  recordKnowledgeIssue,
+  resolveKnowledgeIssue,
+  setKnowledgeOperations,
+} from "../src/modules/knowledge/operations.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 import {
   assignmentRun,
@@ -308,6 +315,39 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
+
+  it("records uncertain Knowledge Telegram delivery without sending again or sending an all-clear", async () => {
+    await linkBot();
+    const at = new Date();
+    await h.run(async (tx) => {
+      await setKnowledgeOperations(tx, project.owner, { monitoring: true });
+      await recordKnowledgeIssue(
+        tx, project.owner, "index", project.owner.projectId,
+        "EVALUATION_SET_TOO_SMALL", at,
+      );
+    });
+    const [job] = await jobsOf("knowledge_operation_problem");
+    failWith = () => new Response("unavailable", { status: 503 });
+    await send(job!.id);
+    await send(job!.id);
+    expect(sent()).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+    expect(markup(sent()[0]!)).toMatchObject([
+      { url: expect.stringContaining("/knowledge/health?expert=1") },
+    ]);
+    await h.run(async (tx) => {
+      expect(await knowledgeIssueViews(tx, project.owner)).toMatchObject([
+        { telegram: "unknown" },
+      ]);
+      await lockKnowledge(tx, project.owner);
+      await resolveKnowledgeIssue(
+        tx, project.owner, "index", project.owner.projectId, at,
+      );
+    });
+    const [recovery] = await jobsOf("knowledge_operation_recovered");
+    await send(recovery!.id);
+    expect(sent()).toHaveLength(1);
+  });
 
   it("sends one preview per publication with image and Stop", async () => {
     await linkBot();

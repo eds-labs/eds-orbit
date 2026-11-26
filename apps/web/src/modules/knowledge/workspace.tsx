@@ -10,6 +10,7 @@ import { Alert, Button, Input, Loading } from "@/components/ui/primitives";
 import { knowledgeCopy } from "./workspace-text";
 import { KnowledgeAddFlow } from "./add-flow";
 import { GithubAppSummary } from "./github-page";
+import { KnowledgeOperations } from "./operations";
 import { TechnicalNav } from "./technical-nav";
 import { SourceList } from "./source-list";
 import { countRemoved, StatementList } from "./statements";
@@ -28,7 +29,7 @@ export function KnowledgeWorkspaceGate({
   tab: KnowledgeTab;
   fallback: ReactNode;
 }) {
-  const { project, revision, locale } = useWorkspace();
+  const { project, revision, locale, isOwner } = useWorkspace();
   const expert = useSearchParams()?.get("expert") === "1";
   const resource = useResource<Summary>(
     `/projects/${project.id}/knowledge-workspace?revision=${revision}`,
@@ -42,10 +43,18 @@ export function KnowledgeWorkspaceGate({
   useEffect(() => {
     if (
       !data?.runs?.some((r) => analysisRunning(String(r.data.status))) &&
-      !data?.siteRuns?.some((r) => siteRunActive(r.data.status))
+      !data?.siteRuns?.some((r) => siteRunActive(r.data.status)) &&
+      !data?.operations?.monitoring
     )
       return;
-    const timer = setInterval(resource.refresh, 4000);
+    const timer = setInterval(
+      resource.refresh,
+      data.operations?.status?.state === "refreshing" ||
+        data.runs?.some((r) => analysisRunning(String(r.data.status))) ||
+        data.siteRuns?.some((r) => siteRunActive(r.data.status))
+        ? 4000
+        : 30000,
+    );
     return () => clearInterval(timer);
   }, [data, resource.refresh]);
   if (
@@ -55,6 +64,13 @@ export function KnowledgeWorkspaceGate({
     return (
       <>
         <TechnicalNav tab={tab} />
+        {tab === "health" && isOwner && (
+          <KnowledgeOperations
+            data={data}
+            refresh={resource.refresh}
+            settings
+          />
+        )}
         {fallback}
       </>
     );
@@ -95,6 +111,15 @@ function WorkspaceView({
   const [query, setQuery] = useState("");
   const [showRemoved, setShowRemoved] = useState(false);
   const review = tab === "review" || tab === "conflicts";
+  const params = useSearchParams();
+  const reviewSource =
+    review && data.operations?.reviewExperience
+      ? (params?.get("source") ?? null)
+      : null;
+  const reviewProposal =
+    review && data.operations?.reviewExperience
+      ? (params?.get("proposal") ?? null)
+      : null;
   const removedCount = countRemoved(data);
   const listingRemoved = showRemoved && removedCount > 0;
   if (tab === "import")
@@ -120,6 +145,16 @@ function WorkspaceView({
           </Button>
         )}
       </header>
+      {tab !== "sources" && (
+        <KnowledgeOperations data={data} refresh={refresh} />
+      )}
+      {review && (reviewSource || reviewProposal) && (
+        <AppLink className="text-link" href={shell.hrefOf("knowledge-review")}>
+          {locale === "de"
+            ? "Alle Prüfaufgaben anzeigen"
+            : "Show all review tasks"}
+        </AppLink>
+      )}
       {tab === "sources" ? (
         <SourceList data={data} refresh={refresh} t={t} />
       ) : (
@@ -172,6 +207,8 @@ function WorkspaceView({
             review={review}
             query={query}
             listingRemoved={listingRemoved}
+            reviewSource={reviewSource}
+            reviewProposal={reviewProposal}
             refresh={refresh}
             t={t}
           />

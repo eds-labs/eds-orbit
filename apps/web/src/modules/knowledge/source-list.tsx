@@ -147,6 +147,9 @@ function SourceRowView({
   const shell = useShell();
   const mutation = useMutation(refresh);
   const [confirmRefresh, setConfirmRefresh] = useState(false);
+  const [githubSettings, setGithubSettings] = useState(false);
+  const [analyzeGithub, setAnalyzeGithub] = useState(false);
+  const de = locale === "de";
   const [removing, setRemoving] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [alreadyRunning, setAlreadyRunning] = useState(false);
@@ -171,6 +174,8 @@ function SourceRowView({
   const draftInput = (e.data.input ?? {}) as {
     repository?: string;
     kind?: string;
+    modelUse?: boolean;
+    rights?: { modelUse?: boolean };
   };
   // Runs arrive newest first; the latest completed analysis tells the outcome.
   const latest = isDraft
@@ -185,6 +190,38 @@ function SourceRowView({
     hasHistory: proposals.length > 0,
   });
   const importHref = shell.hrefOf("knowledge-import");
+  const github = isDraft && draftInput.kind === "github";
+  const githubModelUse =
+    draftInput.modelUse && draftInput.rights?.modelUse !== false;
+  const githubRefresh = e.data.githubRefresh as
+    | {
+        enabled?: boolean;
+        autoAnalyze?: boolean;
+        nextAt?: string | null;
+        lastReadAt?: string;
+        errorCode?: string | null;
+        previewId?: string;
+      }
+    | undefined;
+  const reviewExperience = data.operations?.reviewExperience;
+  const nextRead =
+    githubRefresh?.nextAt ?? (siteRun?.data.nextReadAt as string | null | undefined);
+  const waiting = proposals.filter((p) =>
+    ["needs_review", "pending"].includes(String(p.data.status)),
+  ).length;
+  const configureGithub = async (enabled: boolean) => {
+    const result = await mutation.run(() =>
+      action(project.id, "knowledge-github-refresh-settings", {
+        draftId: row.id,
+        version: e.version,
+        enabled,
+        ...(enabled && githubModelUse && analyzeGithub
+          ? { confirmModelUse: true }
+          : {}),
+      }),
+    );
+    if (result) setGithubSettings(false);
+  };
   const siteBusy = mutation.pending || reading;
 
   const readNow = async () => {
@@ -274,7 +311,14 @@ function SourceRowView({
   else if (primary?.kind === "review")
     primaryControl = (
       <Button asChild variant="outline">
-        <AppLink href={shell.hrefOf("knowledge-review")}>{t.rowReview}</AppLink>
+        <AppLink
+          href={
+            shell.hrefOf("knowledge-review") +
+            (reviewExperience ? `?source=${encodeURIComponent(row.id)}` : "")
+          }
+        >
+          {t.rowReview}
+        </AppLink>
       </Button>
     );
   else if (primary?.kind === "draft-edit")
@@ -320,12 +364,119 @@ function SourceRowView({
           )
         )}
         <p>
-          {t.lastRead}: {when(row.lastRead, locale)}
+          {t.lastRead}:{" "}
+          {when(githubRefresh?.lastReadAt ?? row.lastRead, locale)}
         </p>
         {siteRun && row.status !== "failed" && (
           <SiteRunSummary run={siteRun} t={t} />
         )}
         {isSite && <p>{weekly ? t.weeklyIsOn : t.weeklyIsOff}</p>}
+        {reviewExperience && (
+          <>
+            {nextRead && (
+              <p>
+                {de ? "Nächster Abruf" : "Next read"} · {when(nextRead, locale)}
+              </p>
+            )}
+            <p>
+              {de ? "Offene Prüfungen" : "Open reviews"} · {waiting}
+            </p>
+          </>
+        )}
+        {github && data.operations?.automation && (
+          <>
+            <p>
+              {githubRefresh?.enabled
+                ? de
+                  ? "Wöchentlicher GitHub-Abruf aktiv"
+                  : "Weekly GitHub refresh enabled"
+                : de
+                  ? "Manueller Abruf"
+                  : "Manual refresh"}
+            </p>
+            {githubRefresh?.errorCode && (
+              <WorkspaceError code={githubRefresh.errorCode} t={t} />
+            )}
+            {githubRefresh?.previewId &&
+              !githubRefresh.autoAnalyze &&
+              !githubRefresh.errorCode &&
+              Date.parse(githubRefresh.nextAt ?? "") > Date.now() && (
+                <AppLink
+                  className="text-link"
+                  href={`${importHref}?draft=${row.id}&preview=${githubRefresh.previewId}`}
+                >
+                  {de ? "Letzten Abruf ansehen" : "View latest refresh"}
+                </AppLink>
+              )}
+            {isOwner && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAnalyzeGithub(githubRefresh?.autoAnalyze === true);
+                  setGithubSettings(true);
+                }}
+              >
+                {de
+                  ? "GitHub-Automatik einstellen"
+                  : "Configure GitHub refresh"}
+              </Button>
+            )}
+            {githubSettings && (
+              <Modal
+                title={
+                  de ? "Wöchentlicher GitHub-Abruf" : "Weekly GitHub refresh"
+                }
+                description={
+                  de
+                    ? "Orbit liest nur das verbundene Repository und die ausgewählten Pfade des gespeicherten Branches."
+                    : "Orbit reads only the connected repository and the selected paths on the saved branch."
+                }
+                onClose={() => setGithubSettings(false)}
+              >
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(githubModelUse && analyzeGithub)}
+                    disabled={!githubModelUse}
+                    onChange={(event) => setAnalyzeGithub(event.target.checked)}
+                  />{" "}
+                  {de
+                    ? "Geänderte Inhalte mit dem KI-Budget des Projekts analysieren und Vorschläge vorbereiten"
+                    : "Use the project AI budget to analyze changed content and prepare suggestions"}
+                </label>
+                {!githubModelUse && (
+                  <p className="muted">
+                    {de
+                      ? "Erlaube die KI-Nutzung in den Einstellungen dieser Quelle, um die automatische Analyse zu aktivieren."
+                      : "Allow AI use in this source's settings to enable automatic analysis."}
+                  </p>
+                )}
+                <div className="form-actions">
+                  <Button
+                    disabled={mutation.pending}
+                    onClick={() => configureGithub(true)}
+                  >
+                    {de
+                      ? "Einstellungen speichern und aktivieren"
+                      : "Save and enable"}
+                  </Button>
+                  {githubRefresh?.enabled && (
+                    <Button
+                      variant="outline"
+                      disabled={mutation.pending}
+                      onClick={() => configureGithub(false)}
+                    >
+                      {de ? "Ausschalten" : "Turn off"}
+                    </Button>
+                  )}
+                </div>
+                {mutation.error && (
+                  <WorkspaceError code={mutation.error} t={t} />
+                )}
+              </Modal>
+            )}
+          </>
+        )}
         {alreadyRunning && <Alert>{t.siteAlreadyRunning}</Alert>}
         {outcome && typeof outcome.data.proposalCount === "number" && (
           <p>

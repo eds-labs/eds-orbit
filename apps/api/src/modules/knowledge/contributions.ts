@@ -1,3 +1,8 @@
+import {
+  knowledgeTelegramNotifications,
+  knowledgeUserNotifications,
+} from "./operations.ts";
+import { runGithubRefresh } from "./github-refresh.ts";
 import { indexRefreshScheduler } from "./index-refresh.ts";
 import { runAnalysis } from "./workspace.ts";
 import { knowledgeMcpTools, knowledgeMcpActions } from "./mcp-tools.ts";
@@ -20,7 +25,21 @@ import { knowledgeGithubIntegrations } from "./github.ts";
  * modules keep them while this module is off.
  */
 export const knowledgeContributions: ModuleContributions = {
+  notifications: knowledgeTelegramNotifications,
+  userNotifications: knowledgeUserNotifications,
   jobs: [
+    {
+      queueClass: "knowledge_github_refresh",
+      concurrency: 1,
+      leaseMs: 300000,
+      handler: ({ scope, job }) =>
+        runGithubRefresh(
+          scope,
+          job.resourceId,
+          String(job.approval),
+          String(job.sponsorId),
+        ),
+    },
     {
       queueClass: "knowledge_analysis",
       concurrency: 1,

@@ -30,5 +30,7 @@ export type NotificationRender = (
 export type NotificationContribution = {
   /** Kind names, unique across modules: `[a-z_]+`. */
   kinds: readonly string[];
+  /** A possible transmission is recorded as uncertain and never sent again. */
+  preserveUncertainDelivery?: boolean;
   render: NotificationRender;
 };

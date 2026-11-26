@@ -91,6 +91,8 @@ export function StatementList({
   review,
   query,
   listingRemoved,
+  reviewSource,
+  reviewProposal,
   refresh,
   t,
 }: {
@@ -98,10 +100,12 @@ export function StatementList({
   review: boolean;
   query: string;
   listingRemoved: boolean;
+  reviewSource?: string | null;
+  reviewProposal?: string | null;
   refresh: () => void;
   t: KnowledgeCopy;
 }) {
-  const { project, isOwner } = useWorkspace();
+  const { project, isOwner, locale } = useWorkspace();
   const shell = useShell();
   // Above the cards: a card is keyed by its version and may leave the list.
   const [edits, setEdits] = useState<Record<string, StatementEdit>>({});
@@ -125,9 +129,22 @@ export function StatementList({
         ? isRemoved(p)
         : p.data.status === "accepted" && !isRemoved(p),
   );
+  useEffect(() => {
+    if (!reviewProposal) return;
+    const target = document.getElementById(
+      `knowledge-proposal-${reviewProposal}`,
+    );
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "start" });
+  }, [reviewProposal, listed.length]);
   const needle = query.toLowerCase();
-  const filtered = listed.filter((p) =>
-    textOf(p).toLowerCase().includes(needle),
+  const filtered = listed.filter(
+    (p) =>
+      (!reviewSource ||
+        p.data.draftId === reviewSource ||
+        p.data.sourceId === reviewSource) &&
+      (!reviewProposal || p.id === reviewProposal) &&
+      textOf(p).toLowerCase().includes(needle),
   );
   const paused = pausedSources(data);
   const oldFacts =
@@ -160,6 +177,10 @@ export function StatementList({
   const changed = review
     ? filtered.filter((p) => p.data.status === "needs_review")
     : [];
+  const blocked = data.operations?.reviewExperience
+    ? changed.filter((p) => p.data.publicUse && p.data.factId)
+    : [];
+  const remainsChanged = changed.filter((p) => !blocked.includes(p));
   const groups = groupByTopic(filtered.filter((p) => !changed.includes(p)));
 
   const edit = (id: string, patch: StatementEdit) =>
@@ -203,33 +224,41 @@ export function StatementList({
       );
     });
 
-  const card = (p: Entity) =>
-    review && p.data.status !== "needs_review" ? (
-      <ReviewCard
-        key={`${p.id}:${p.version}`}
-        proposal={p}
-        drafts={data.drafts}
-        edit={edits[p.id]}
-        onEdit={(patch) => edit(p.id, patch)}
-        selected={kept.has(p.id)}
-        onSelect={(on) => select([p.id], on)}
-        failure={failures[p.id]}
-        busy={bulk.pending}
-        refresh={refresh}
-        t={t}
-      />
-    ) : (
-      <Proposal
-        key={`${p.id}:${p.version}`}
-        proposal={p}
-        review={review}
-        manage={!review && !listingRemoved}
-        removed={listingRemoved}
-        facts={data.facts}
-        refresh={refresh}
-        t={t}
-      />
-    );
+  const card = (p: Entity) => (
+    <div
+      key={`${p.id}:${p.version}`}
+      id={`knowledge-proposal-${p.id}`}
+      tabIndex={-1}
+    >
+      {review && p.data.status !== "needs_review" ? (
+        <ReviewCard
+          key={`${p.id}:${p.version}`}
+          proposal={p}
+          drafts={data.drafts}
+          edit={edits[p.id]}
+          onEdit={(patch) => edit(p.id, patch)}
+          selected={kept.has(p.id)}
+          onSelect={(on) => select([p.id], on)}
+          failure={failures[p.id]}
+          busy={bulk.pending}
+          refresh={refresh}
+          t={t}
+        />
+      ) : (
+        <Proposal
+          key={`${p.id}:${p.version}`}
+          proposal={p}
+          review={review}
+          manage={!review && !listingRemoved}
+          removed={listingRemoved}
+          showComparison={data.operations?.reviewExperience}
+          facts={data.facts}
+          refresh={refresh}
+          t={t}
+        />
+      )}
+    </div>
+  );
 
   return (
     <div className="knowledge-statement-list stack-gap">
@@ -240,9 +269,21 @@ export function StatementList({
         />
       ) : (
         <>
-          {changed.length > 0 && (
-            <TopicGroup title={t.changedGroup} count={changed.length}>
-              {changed.map(card)}
+          {blocked.length > 0 && (
+            <TopicGroup
+              title={
+                locale === "de"
+                  ? "Öffentliche Aussagen ausgesetzt"
+                  : "Suspended public statements"
+              }
+              count={blocked.length}
+            >
+              {blocked.map(card)}
+            </TopicGroup>
+          )}
+          {remainsChanged.length > 0 && (
+            <TopicGroup title={t.changedGroup} count={remainsChanged.length}>
+              {remainsChanged.map(card)}
             </TopicGroup>
           )}
           {groups.map(({ topic, items }) => {
@@ -635,6 +676,7 @@ export function Proposal({
   review,
   manage = false,
   removed = false,
+  showComparison,
   facts = [],
   refresh,
   t,
@@ -645,6 +687,7 @@ export function Proposal({
   manage?: boolean;
   /** Listed among removed statements: offers bringing it back. */
   removed?: boolean;
+  showComparison?: boolean;
   facts?: Entity[];
   refresh: () => void;
   t: KnowledgeCopy;
@@ -730,10 +773,62 @@ export function Proposal({
         <h3>{String(d.statement)}</h3>
       )}
       {changed && <Alert kind="warning">{t.changedHint}</Alert>}
+      {showComparison && (changed || d.status === "accepted") && (
+        <p>
+          {d.publicUse ? t.public : t.internal} ·{" "}
+          {((d.audiences as string[]) ?? [])
+            .map((a) => t[a as keyof KnowledgeCopy])
+            .join(", ")}
+        </p>
+      )}
+      {showComparison && changed && (
+        <section
+          className="stack-gap"
+          aria-label={
+            locale === "de" ? "Belegvergleich" : "Evidence comparison"
+          }
+        >
+          <div>
+            <strong>
+              {locale === "de" ? "Bisheriger Beleg" : "Previous evidence"}
+            </strong>
+            {d.evidence?.quote && (
+              <blockquote>
+                <del>{String(d.evidence.quote)}</del>
+              </blockquote>
+            )}
+          </div>
+          <div>
+            <strong>
+              {locale === "de"
+                ? "Neue Quelle an der bisherigen Position"
+                : "New source at the previous location"}
+            </strong>
+            {d.changedEvidence?.quote ? (
+              <blockquote>
+                <ins>{String(d.changedEvidence.quote)}</ins>
+              </blockquote>
+            ) : (
+              <p>
+                {locale === "de"
+                  ? "Kein neuer Ausschnitt verfügbar."
+                  : "No current excerpt is available."}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
       <details>
         <summary>{t.evidence}</summary>
         <p>{t.stageHint}</p>
         {d.evidence && <Evidence evidence={d.evidence} commit t={t} />}
+        {d.verifiedAgainst?.url && (
+          <Evidence
+            evidence={{ ...d.evidence, ...d.verifiedAgainst }}
+            commit
+            t={t}
+          />
+        )}
         {d.status === "accepted" && (
           <p>
             {d.publicUse ? t.public : t.internal} ·{" "}

@@ -22,11 +22,27 @@ import {
 import type { SchedulerContribution } from "../../platform/jobs/types.ts";
 import { create, data, DomainError, entity, update } from "../../shared.ts";
 import { queueIndexBuild } from "./evaluation-tools.ts";
+import { isolated } from "../../platform/knowledge/release-impact.ts";
+import {
+  knowledgeOperationsSettings,
+  lockKnowledge,
+  recordKnowledgeIssue,
+  resolveKnowledgeIssue,
+  sweepKnowledgeSources,
+  sweepKnowledgeRecoveries,
+} from "./operations.ts";
+import { githubRefreshScheduler } from "./github-refresh.ts";
 
 const INDEX_REFRESH_SETTINGS = "knowledge_index_refresh_settings";
 const CHECK_INTERVAL_MS = 60_000;
 const AUTO_COOLDOWN_MS = 15 * CHECK_INTERVAL_MS;
 const AUTO_START_DELAY_MS = 2 * CHECK_INTERVAL_MS;
+const CORPUS_SETTLE_MS = 5 * CHECK_INTERVAL_MS;
+const RETRY_DELAYS = [5 * CHECK_INTERVAL_MS, 15 * CHECK_INTERVAL_MS];
+const SAFE_RETRY_CODES = new Set([
+  "INDEX_RATE_LIMIT_RETRY_REQUIRED",
+  "PROVIDER_UNAVAILABLE_BEFORE_SEND",
+]);
 const RUN_DEADLINE_MS = 60 * CHECK_INTERVAL_MS;
 const PENDING_JOB = ["queued", "running", "retry_scheduled"];
 
@@ -58,6 +74,10 @@ export async function indexRefreshStatus(tx: DbTx, s: Scope) {
   const run = await latestRun(tx, s);
   return {
     autoEnabled: data(config).enabled === true,
+    nextAttemptAt: (data(run).status === "waiting_retry"
+      ? data(run).retryAt
+      : data(config).nextAttemptAt) as string | undefined,
+    lastSuccessAt: data(config).lastSuccessAt as string | undefined,
     run: run
       ? {
           indexId: String(data(run).indexId),
@@ -93,9 +113,12 @@ export async function setIndexRefreshAutomation(
   raw: unknown,
 ) {
   const input = automationInput.parse(raw);
+  await lockKnowledge(tx, s);
   if (input.enabled) await assertPaidRefresh(tx, s, new Date());
   const row = await settings(tx, s);
   const value = {
+    ...data(row),
+    nextAttemptAt: null,
     enabled: input.enabled,
     ownerId: s.userId,
     consentedAt: input.enabled ? new Date().toISOString() : null,
@@ -105,7 +128,7 @@ export async function setIndexRefreshAutomation(
   return { enabled: input.enabled };
 }
 
-async function beginRefresh(tx: DbTx, s: Scope, at: Date) {
+async function beginRefresh(tx: DbTx, s: Scope, at: Date, attempt = 1) {
   await assertPaidRefresh(tx, s, at);
   // With at most three questions per passage, fewer than 16 cannot pass.
   if ((await currentIndexCorpus(tx, s)).chunks < 16)
@@ -121,18 +144,51 @@ async function beginRefresh(tx: DbTx, s: Scope, at: Date) {
     status: "running",
     stage: "embedding",
     evaluationId: null,
+    attempt,
   });
 }
 
 export async function startIndexRefresh(tx: DbTx, s: Scope, raw: unknown) {
   consent.parse(raw);
+  await lockKnowledge(tx, s);
   const previous = await latestRun(tx, s);
   if (previous && data(previous).status === "running")
     return { indexId: data(previous).indexId, status: "running" };
   if ((await validateActiveIndexEvaluation(tx, s)).valid)
     return { status: "current" };
+  if (previous && (await hasUnreconciledIndexSpend(tx, s, data(previous)))) {
+    throw new DomainError("INDEX_REFRESH_RECONCILIATION_REQUIRED", 409);
+  }
   const run = await beginRefresh(tx, s, new Date());
   return { indexId: data(run).indexId, status: "running" };
+}
+
+async function hasUnreconciledIndexSpend(
+  tx: DbTx,
+  s: Scope,
+  previous: Record<string, any>,
+) {
+  if (!previous.indexId) return false;
+  return !!(await tx.budgetReservation.findFirst({
+    where: {
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+      state: { in: ["unknown", "in_flight"] },
+      OR: [
+        { key: { startsWith: `${s.projectId}:index:${previous.indexId}:` } },
+        ...(previous.evaluationId
+          ? [
+              {
+                key: {
+                  contains: `knowledge_evaluation:${previous.evaluationId}`,
+                },
+              },
+            ]
+          : []),
+      ],
+    },
+    select: { id: true },
+  }));
 }
 
 const knownCode = (error: unknown) => {
@@ -165,138 +221,273 @@ async function advance(
   const current = data(run);
   const save = (changes: Record<string, unknown>) =>
     update(tx, s, run, { ...current, ...changes });
-  const fail = (errorCode: string) => save({ status: "failed", errorCode });
+  const fail = async (errorCode: string) => {
+    const improved = (await knowledgeOperationsSettings(tx, s)).automation;
+    const superseded =
+      improved &&
+      ["INDEX_CORPUS_CHANGED", "INDEX_REFRESH_ACTIVE_CHANGED"].includes(
+        errorCode,
+      );
+    const retry =
+      improved &&
+      SAFE_RETRY_CODES.has(errorCode) &&
+      Number(current.attempt ?? 1) <= RETRY_DELAYS.length;
+    const retryAt = retry
+      ? new Date(
+          at.getTime() + RETRY_DELAYS[Number(current.attempt ?? 1) - 1]!,
+        ).toISOString()
+      : null;
+    await save({
+      status: superseded ? "superseded" : retry ? "waiting_retry" : "failed",
+      errorCode,
+      retryAt,
+    });
+    if (!superseded && !retry)
+      await recordKnowledgeIssue(tx, s, "index", s.projectId, errorCode, at);
+  };
   if (at.getTime() - run.createdAt.getTime() >= RUN_DEADLINE_MS) {
     await fail("INDEX_REFRESH_TIMEOUT");
     return;
   }
   try {
-    const owner = await requireRefreshOwner(tx, s, current.ownerId);
-    const active = await getActiveIndex(tx, s);
-    if (active.id !== current.previousIndexId)
-      throw new DomainError("INDEX_REFRESH_ACTIVE_CHANGED");
-    const index = await tx.knowledgeIndex.findFirstOrThrow({
-      where: {
-        workspaceId: s.workspaceId,
-        projectId: s.projectId,
-        id: current.indexId,
-      },
-    });
-    if (index.manifestHash !== (await currentIndexCorpus(tx, s)).hash)
-      throw new DomainError("INDEX_CORPUS_CHANGED");
-
-    if (current.stage === "embedding") {
-      const job = await stageJob(tx, s, index.id, "reindex");
-      if (job && PENDING_JOB.includes(data(job).status)) return;
-      if (!job || data(job).status !== "succeeded")
-        throw new DomainError(data(job).error ?? "INDEX_REFRESH_BUILD_FAILED");
-      await assertPaidRefresh(tx, owner, at);
-      const evaluation = await queueEvaluationSet(tx, owner, index.id);
-      await save({ stage: "questions", evaluationId: evaluation.id });
-      return;
-    }
-
-    const evaluation = await entity(
-      tx,
-      s,
-      "index_evaluations",
-      current.evaluationId,
-    );
-    const result = data(evaluation);
-    if (result.status === "failed")
-      throw new DomainError(
-        result.errorCode ?? "INDEX_REFRESH_EVALUATION_FAILED",
-      );
-    if (current.stage === "questions" && result.status === "review") {
-      await assertPaidRefresh(tx, owner, at);
-      await startEvaluationSet(tx, owner, {
-        evaluationId: evaluation.id,
-        confirmQueriesMayBeSentToOpenAI: true,
+    await isolated(tx, "knowledge_index_advance", async () => {
+      const owner = await requireRefreshOwner(tx, s, current.ownerId);
+      const active = await getActiveIndex(tx, s);
+      if (active.id !== current.previousIndexId)
+        throw new DomainError("INDEX_REFRESH_ACTIVE_CHANGED");
+      const index = await tx.knowledgeIndex.findFirstOrThrow({
+        where: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          id: current.indexId,
+        },
       });
-      await save({ stage: "evaluation" });
-      return;
-    }
-    if (result.status === "completed") {
-      const indexEvaluation = index.evaluation as {
-        datasetVersion?: string;
-      } | null;
-      if (
-        current.stage !== "evaluation" ||
-        result.evaluation?.passed !== true ||
-        result.evaluation?.provenance !== "live" ||
-        index.state !== "evaluated" ||
-        indexEvaluation?.datasetVersion !== result.datasetVersion
-      )
-        throw new DomainError("INDEX_REFRESH_CHECK_NOT_PASSED");
-      await activateIndexGeneration(tx, owner, index.id);
-      await save({ status: "completed" });
-      return;
-    }
-    const job = await stageJob(
-      tx,
-      s,
-      evaluation.id,
-      result.status === "generating"
-        ? "index_evaluation_set"
-        : "index_evaluation",
-    );
-    if (
-      job &&
-      !PENDING_JOB.includes(data(job).status) &&
-      data(job).status !== "succeeded"
-    )
-      throw new DomainError(
-        data(job).error ?? "INDEX_REFRESH_EVALUATION_FAILED",
+      if (index.manifestHash !== (await currentIndexCorpus(tx, s)).hash)
+        throw new DomainError("INDEX_CORPUS_CHANGED");
+
+      if (current.stage === "embedding") {
+        const job = await stageJob(tx, s, index.id, "reindex");
+        if (job && PENDING_JOB.includes(data(job).status)) return;
+        if (!job || data(job).status !== "succeeded")
+          throw new DomainError(
+            data(job).error ?? "INDEX_REFRESH_BUILD_FAILED",
+          );
+        await assertPaidRefresh(tx, owner, at);
+        const evaluation = await queueEvaluationSet(tx, owner, index.id);
+        await save({ stage: "questions", evaluationId: evaluation.id });
+        return;
+      }
+
+      const evaluation = await entity(
+        tx,
+        s,
+        "index_evaluations",
+        current.evaluationId,
       );
+      const result = data(evaluation);
+      if (["failed", "unknown"].includes(result.status))
+        throw new DomainError(
+          result.errorCode ?? "INDEX_REFRESH_EVALUATION_FAILED",
+        );
+      if (current.stage === "questions" && result.status === "review") {
+        await assertPaidRefresh(tx, owner, at);
+        await startEvaluationSet(tx, owner, {
+          evaluationId: evaluation.id,
+          confirmQueriesMayBeSentToOpenAI: true,
+        });
+        await save({ stage: "evaluation" });
+        return;
+      }
+      if (result.status === "completed") {
+        const indexEvaluation = index.evaluation as {
+          datasetVersion?: string;
+        } | null;
+        if (
+          current.stage !== "evaluation" ||
+          result.evaluation?.passed !== true ||
+          result.evaluation?.provenance !== "live" ||
+          index.state !== "evaluated" ||
+          indexEvaluation?.datasetVersion !== result.datasetVersion
+        )
+          throw new DomainError("INDEX_REFRESH_CHECK_NOT_PASSED");
+        await activateIndexGeneration(tx, owner, index.id);
+        await save({ status: "completed" });
+        const config = await settings(tx, s);
+        if (config)
+          await update(tx, s, config, {
+            ...data(config),
+            lastSuccessAt: at.toISOString(),
+            nextAttemptAt: null,
+            pendingHash: null,
+          });
+        await resolveKnowledgeIssue(tx, s, "index", s.projectId, at);
+        return;
+      }
+      const job = await stageJob(
+        tx,
+        s,
+        evaluation.id,
+        result.status === "generating"
+          ? "index_evaluation_set"
+          : "index_evaluation",
+      );
+      if (
+        job &&
+        !PENDING_JOB.includes(data(job).status) &&
+        data(job).status !== "succeeded"
+      )
+        throw new DomainError(
+          data(job).error ?? "INDEX_REFRESH_EVALUATION_FAILED",
+        );
+    });
   } catch (error) {
     await fail(knownCode(error));
   }
 }
 
+async function sweepIndex(tx: DbTx, s: Scope, at: Date) {
+  const run = await latestRun(tx, s);
+  const previous = data(run);
+  if (run && previous.status === "running") {
+    return advance(tx, s, run, at);
+  }
+  const config = await settings(tx, s);
+  const operations = await knowledgeOperationsSettings(tx, s);
+  if (!config && !operations.monitoring) return;
+  const active = await tx.knowledgeIndex.findFirst({
+    where: {
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+      state: "active",
+    },
+    select: { id: true },
+  });
+  if (!active && data(config).enabled !== true) return;
+
+  let live: Awaited<ReturnType<typeof validateActiveIndexEvaluation>>;
+  try {
+    live = await validateActiveIndexEvaluation(tx, s, at);
+  } catch (error) {
+    if (!(error instanceof KnowledgeError) || error.code !== "NO_ACTIVE_EMBEDDING_INDEX")
+      throw error;
+    await recordKnowledgeIssue(tx, s, "index", s.projectId, error.code, at);
+    return;
+  }
+  if (live.valid) {
+    await resolveKnowledgeIssue(tx, s, "index", s.projectId, at);
+    if (config && data(config).nextAttemptAt)
+      await update(tx, s, config, {
+        ...data(config),
+        pendingHash: null,
+        nextAttemptAt: null,
+      });
+    return;
+  }
+  if (!config || data(config).enabled !== true) return;
+  const configData = data(config);
+  if (
+    at.getTime() -
+      Date.parse(configData.consentedAt ?? config.updatedAt.toISOString()) <
+    AUTO_START_DELAY_MS
+  )
+    return;
+
+  if (run && (await hasUnreconciledIndexSpend(tx, s, previous))) {
+    await recordKnowledgeIssue(
+      tx,
+      s,
+      "index",
+      s.projectId,
+      "INDEX_REFRESH_RECONCILIATION_REQUIRED",
+      at,
+    );
+    return;
+  }
+  const corpus = await currentIndexCorpus(tx, s);
+  if (corpus.chunks < 16) {
+    await recordKnowledgeIssue(
+      tx,
+      s,
+      "index",
+      s.projectId,
+      "EVALUATION_SET_TOO_SMALL",
+      at,
+    );
+    return;
+  }
+  const sameCorpus =
+    previous.previousIndexId === live.indexId &&
+    previous.corpusHash === corpus.hash;
+  if (sameCorpus && previous.status === "failed") {
+    await recordKnowledgeIssue(
+      tx,
+      s,
+      "index",
+      s.projectId,
+      previous.errorCode ?? "INDEX_REFRESH_FAILED",
+      at,
+    );
+    return;
+  }
+
+  const retrying = sameCorpus && previous.status === "waiting_retry";
+  if (operations.automation) {
+    if (configData.pendingHash !== corpus.hash) {
+      await update(tx, s, config, {
+        ...configData,
+        pendingHash: corpus.hash,
+        nextAttemptAt: new Date(at.getTime() + CORPUS_SETTLE_MS).toISOString(),
+      });
+      return;
+    }
+    if (
+      Date.parse(retrying ? previous.retryAt : configData.nextAttemptAt) >
+      at.getTime()
+    )
+      return;
+  } else if (
+    run &&
+    (retrying || at.getTime() - run.createdAt.getTime() < AUTO_COOLDOWN_MS)
+  )
+    return;
+
+  try {
+    await isolated(tx, "knowledge_index_start", async () => {
+      const owner = await requireRefreshOwner(tx, s, configData.ownerId);
+      await beginRefresh(
+        tx,
+        owner,
+        at,
+        retrying ? Number(previous.attempt ?? 1) + 1 : 1,
+      );
+    });
+    return 1;
+  } catch (error) {
+    const code = knownCode(error);
+    await recordKnowledgeIssue(tx, s, "index", s.projectId, code, at);
+  }
+}
+
 export const indexRefreshScheduler: SchedulerContribution = {
   async sweep(tx, s, at) {
-    const run = await latestRun(tx, s);
-    if (run && data(run).status === "running") {
-      await advance(tx, s, run, at);
-      return { queued: 0 };
-    }
-    const config = await settings(tx, s);
-    if (
-      !config ||
-      data(config).enabled !== true ||
-      at.getTime() - config.updatedAt.getTime() < AUTO_START_DELAY_MS ||
-      (run && at.getTime() - run.createdAt.getTime() < AUTO_COOLDOWN_MS)
-    )
-      return { queued: 0 };
-    const live = await validateActiveIndexEvaluation(tx, s, at);
-    if (live.valid) return { queued: 0 };
-    const corpus = await currentIndexCorpus(tx, s);
-    // At most three generated questions per passage and at least 48 required.
-    if (
-      corpus.chunks < 16 ||
-      (run &&
-        data(run).status === "failed" &&
-        data(run).previousIndexId === live.indexId &&
-        data(run).corpusHash === corpus.hash)
-    )
-      return { queued: 0 };
-    try {
-      const owner = await requireRefreshOwner(tx, s, data(config).ownerId);
-      await beginRefresh(tx, owner, at);
-      return { queued: 1 };
-    } catch (error) {
-      knownCode(error);
-      return { queued: 0 };
-    }
+    await lockKnowledge(tx, s);
+    const indexJobs = (await sweepIndex(tx, s, at)) ?? 0;
+    await sweepKnowledgeSources(tx, s, at);
+    await sweepKnowledgeRecoveries(tx, s);
+    const githubJobs = await githubRefreshScheduler(tx, s, at);
+    return { queued: indexJobs + githubJobs };
   },
   async nextDueAt(tx, s, at) {
-    const [config, run] = await Promise.all([
+    const [config, run, operations] = await Promise.all([
       settings(tx, s),
       latestRun(tx, s),
+      knowledgeOperationsSettings(tx, s),
     ]);
     if (
       data(config).enabled !== true &&
-      (!run || data(run).status !== "running")
+      data(run).status !== "running" &&
+      !operations.monitoring &&
+      !operations.automation
     )
       return null;
     return new Date(at.getTime() + CHECK_INTERVAL_MS);

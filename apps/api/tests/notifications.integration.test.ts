@@ -188,6 +188,26 @@ describe.skipIf(!enabled)("member notifications", () => {
         email: false,
       },
       {
+        kind: "knowledge_operation_problem",
+        moduleId: "knowledge",
+        label: {
+          en: "Knowledge needs attention",
+          de: "Wissen braucht Aufmerksamkeit",
+        },
+        inApp: true,
+        email: false,
+      },
+      {
+        kind: "knowledge_operation_recovered",
+        moduleId: "knowledge",
+        label: {
+          en: "Knowledge issue resolved",
+          de: "Wissensproblem behoben",
+        },
+        inApp: true,
+        email: false,
+      },
+      {
         kind: "task_assigned",
         moduleId: "tasks",
         label: { en: "Task assigned", de: "Aufgabe zugewiesen" },

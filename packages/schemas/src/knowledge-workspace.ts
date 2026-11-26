@@ -49,6 +49,8 @@ export const knowledgeDraftBase = z
     kind: z.enum(["manual", "file", "website", "github"]),
     text: z.string().max(100000).default(""),
     url: z.url().optional(),
+    evidenceUrl: z.url().max(400).optional(),
+    evidenceQuote: z.string().trim().min(1).max(1000).optional(),
     // A site draft: the selected pages of `url`, one snapshot file each. An
     // address longer than an evidence path could not be cited.
     pages: z.array(z.url().max(400)).max(30).optional(),

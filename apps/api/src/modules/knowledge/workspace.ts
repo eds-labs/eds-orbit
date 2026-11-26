@@ -19,6 +19,9 @@ import {
   MIME,
   validatePublicUrl,
   type FactData,
+  safeCitation,
+  sourceExpiry,
+  tracksFreshness,
 } from "../../../../../packages/knowledge/src/index.ts";
 import {
   respond,
@@ -67,16 +70,23 @@ import {
   readSitePage,
   sitePolicy,
 } from "../../platform/knowledge/site-sync.ts";
+import { siteRunDueFromLast } from "../../platform/knowledge/site-run.ts";
 import { readRepository, githubToken } from "./github.ts";
+import {
+  knowledgeOperationsSettings,
+  knowledgeIssueViews,
+  lockKnowledge,
+} from "./operations.ts";
+import { assertGithubRefresh } from "./github-refresh.ts";
+import { relocateEvidence } from "./evidence-refresh.ts";
+import { knowledgeIndexOverview } from "./index-overview.ts";
+export { lockKnowledge } from "./operations.ts";
 
 export const workspaceEnabled = () =>
   process.env.ORBIT_KNOWLEDGE_WORKSPACE === "true";
 export function assertWorkspace() {
   if (!workspaceEnabled())
     throw new DomainError("KNOWLEDGE_WORKSPACE_DISABLED", 404);
-}
-export async function lockKnowledge(tx: DbTx, s: Scope) {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${s.projectId + ":knowledge-workspace"}, 0))`;
 }
 export async function owner(s: Scope) {
   assertWorkspace();
@@ -98,23 +108,36 @@ async function latestSiteRuns(
   s: Scope,
   sources: { data: unknown }[],
 ) {
-  const ids = sources
-    .map((source) => data(source).site?.lastRunId)
-    .filter((id): id is string => typeof id === "string");
-  if (!ids.length) return [];
+  const byLastRun = new Map(
+    sources.flatMap((source) => {
+      const d = data(source);
+      const id = d.site?.lastRunId;
+      return typeof id === "string" ? [[id, d] as const] : [];
+    }),
+  );
+  if (!byLastRun.size) return [];
   const rows = await tx.entity.findMany({
     where: {
       workspaceId: s.workspaceId,
       projectId: s.projectId,
       kind: "knowledge_site_runs",
-      id: { in: ids },
+      id: { in: [...byLastRun.keys()] },
     },
   });
   return rows.map((r) => {
     const { pages, languages: _languages, ...rest } = data(r);
+    const source = byLastRun.get(r.id);
+    const due =
+      source?.status === "active" && source.syncEveryHours > 0
+        ? siteRunDueFromLast(source.syncEveryHours, rest)
+        : null;
     return {
       ...r,
-      data: { ...rest, pageCount: Array.isArray(pages) ? pages.length : 0 },
+      data: {
+        ...rest,
+        pageCount: Array.isArray(pages) ? pages.length : 0,
+        nextReadAt: due === null ? null : new Date(due).toISOString(),
+      },
     };
   });
 }
@@ -122,8 +145,24 @@ export async function workspaceSummary(s: Scope) {
   if (!workspaceEnabled()) return { enabled: false };
   return scoped(s.workspaceId, s.projectId, async (tx) => {
     const sources = await list(tx, s, "sources");
+    const proposals = await list(tx, s, "knowledge_proposals");
+    const operations = await knowledgeOperationsSettings(tx, s);
     return {
       enabled: true,
+      operations: {
+        ...operations,
+        status: operations.monitoring
+          ? await knowledgeIndexOverview(tx, s)
+          : null,
+        issues:
+          operations.monitoring && s.role === "owner"
+            ? await knowledgeIssueViews(tx, s)
+            : [],
+        changed: proposals.filter((row) => data(row).status === "needs_review")
+          .length,
+        pending: proposals.filter((row) => data(row).status === "pending")
+          .length,
+      },
       profile: data((await list(tx, s, "knowledge_profiles"))[0]),
       drafts: await list(tx, s, "knowledge_drafts"),
       runs: (await list(tx, s, "knowledge_runs")).map((r) => ({
@@ -135,7 +174,7 @@ export async function workspaceSummary(s: Scope) {
         ),
       })),
       siteRuns: await latestSiteRuns(tx, s, sources),
-      proposals: await list(tx, s, "knowledge_proposals"),
+      proposals,
       facts: await list(tx, s, "facts"),
       sources,
     };
@@ -235,8 +274,16 @@ export async function saveDraft(s: Scope, input: unknown) {
   const value = partial
     ? knowledgeDraftBase.parse(raw)
     : knowledgeDraft.parse(raw);
-  if (containsCredentials(value.text))
+  if (
+    containsCredentials(value.text) ||
+    (value.evidenceQuote && containsCredentials(value.evidenceQuote))
+  )
     throw new DomainError("KNOWLEDGE_SENSITIVE_TEXT_EXCLUDED", 409);
+  if (
+    value.evidenceUrl &&
+    safeCitation(value.evidenceUrl) !== new URL(value.evidenceUrl).href
+  )
+    throw new DomainError("URL_NOT_ALLOWED", 400);
   return scoped(s.workspaceId, s.projectId, async (tx) => {
     await lockKnowledge(tx, s);
     if (!id)
@@ -329,7 +376,14 @@ export async function snapshot(
   }
   return {
     commit: null,
-    files: [{ path: input.name, text: input.text, hash: hash(input.text) }],
+    files: [
+      {
+        path: input.name,
+        text: input.evidenceQuote ?? input.text,
+        hash: hash(input.evidenceQuote ?? input.text),
+        ...(input.evidenceUrl ? { url: input.evidenceUrl } : {}),
+      },
+    ],
     partial: false,
     skipped: 0,
   };
@@ -360,12 +414,18 @@ export function validateProposalEvidence(
     commit: s.commit,
   };
 }
-export async function previewDraft(s: Scope, input: unknown) {
+export async function previewDraft(
+  s: Scope,
+  input: unknown,
+  automation?: { approval: string; sponsorId: string },
+) {
   await owner(s);
   const { draftId } = z.object({ draftId: z.uuid() }).parse(input);
-  const draft = await scoped(s.workspaceId, s.projectId, (tx) =>
-    entity(tx, s, "knowledge_drafts", draftId),
-  );
+  const draft = await scoped(s.workspaceId, s.projectId, async (tx) => {
+    const row = await entity(tx, s, "knowledge_drafts", draftId);
+    if (automation) await assertGithubRefresh(tx, s, row, automation);
+    return row;
+  });
   if (data(draft).activeRunId)
     throw new DomainError("KNOWLEDGE_RUN_ACTIVE", 409);
   const snap = await snapshot(s, knowledgeDraft.parse(data(draft).input));
@@ -374,13 +434,23 @@ export async function previewDraft(s: Scope, input: unknown) {
     const current = await entity(tx, s, "knowledge_drafts", draftId);
     if (current.version !== draft.version)
       throw new DomainError("VERSION_CONFLICT", 409);
+    if (automation) await assertGithubRefresh(tx, s, current, automation);
     await invalidateChangedKnowledge(tx, s, draftId, snap);
-    return create(tx, s, "knowledge_previews", {
+    const row = await create(tx, s, "knowledge_previews", {
       draftId,
-      draftVersion: draft.version,
+      draftVersion: current.version + (automation ? 1 : 0),
       snapshot: snap,
-      expiresAt: Date.now() + 30 * 60000,
+      ...(automation ? { automationApproval: automation.approval } : {}),
+      expiresAt: Date.now() + (automation ? 7 * 86400000 : 30 * 60000),
     });
+    if (automation) {
+      const d = data(current);
+      await update(tx, s, current, {
+        ...d,
+        githubRefresh: { ...d.githubRefresh, previewId: row.id },
+      });
+    }
+    return row;
   });
   return {
     id: stored.id,
@@ -397,17 +467,31 @@ export async function previewDraft(s: Scope, input: unknown) {
 type DraftRow = Awaited<ReturnType<typeof entity>>;
 type AnalysisPreview = {
   draft: DraftRow;
-  draftVersion: number;
+  current: boolean;
   expiresAt: number;
   snapshot: KnowledgeSnapshot;
 };
+
+function previewMatchesDraft(
+  draft: DraftRow,
+  previewId: string,
+  preview: Record<string, any>,
+) {
+  const d = data(draft);
+  return (
+    draft.version === preview.draftVersion ||
+    (d.githubRefresh?.previewId === previewId &&
+      preview.automationApproval === hash(d.input))
+  );
+}
+
 /** A preview with its current draft and what that draft asks for. */
 async function previewForAnalysis(tx: DbTx, s: Scope, previewId: string) {
   const p = data(await entity(tx, s, "knowledge_previews", previewId));
   const draft = await entity(tx, s, "knowledge_drafts", p.draftId);
   const preview: AnalysisPreview = {
     draft,
-    draftVersion: p.draftVersion,
+    current: previewMatchesDraft(draft, previewId, p),
     expiresAt: p.expiresAt,
     snapshot: p.snapshot,
   };
@@ -532,7 +616,7 @@ async function analysisReadiness(
       return null;
     }
   };
-  if (draft.version !== preview.draftVersion || preview.expiresAt < Date.now())
+  if (!preview.current || preview.expiresAt < Date.now())
     blockers.push("KNOWLEDGE_PREVIEW_EXPIRED");
   const unresolved = await tx.budgetReservation.findFirst({
     where: {
@@ -620,7 +704,11 @@ export async function analysisPreflight(s: Scope, input: unknown) {
     return { ready, blockers, estimateMicros, model, provider, proposalLimit };
   });
 }
-export async function startAnalysis(s: Scope, input: unknown) {
+export async function startAnalysis(
+  s: Scope,
+  input: unknown,
+  automation?: { approval: string; sponsorId: string },
+) {
   await owner(s);
   const { previewId, confirmModelUse } = z
     .object({
@@ -633,6 +721,7 @@ export async function startAnalysis(s: Scope, input: unknown) {
     await lockKnowledge(tx, s);
     const { preview, input: i } = await previewForAnalysis(tx, s, previewId);
     const { draft, snapshot: snap } = preview;
+    if (automation) await assertGithubRefresh(tx, s, draft, automation);
     const d = data(draft);
     if (d.activeRunId) return entity(tx, s, "knowledge_runs", d.activeRunId);
     const readiness = await analysisReadiness(tx, s, preview, i);
@@ -647,6 +736,7 @@ export async function startAnalysis(s: Scope, input: unknown) {
       changedPaths: readiness.changedPaths,
       status: "queued",
       actorId: s.userId,
+      ...(automation ? { githubAutomation: automation } : {}),
       previewId,
       processed: 0,
       total: snap.files.length,
@@ -687,12 +777,12 @@ export function directTextProposals(
 ): KnowledgeProposal[] {
   const file = snap.files[0];
   if (!file) return [];
-  if (file.text.length > MAX_STATEMENT_CHARACTERS)
+  if (Math.max(input.text.length, file.text.length) > MAX_STATEMENT_CHARACTERS)
     throw new DomainError("KNOWLEDGE_TEXT_TOO_LONG", 409);
   // A manual text submission is a proposal, not automatic verification.
   return [
     {
-      statement: file.text.trim(),
+      statement: (input.evidenceQuote ? input.text : file.text).trim(),
       topic: "description",
       stage: "documented",
       reason:
@@ -718,6 +808,14 @@ async function analyze(
   const prepared = await scoped(s.workspaceId, s.projectId, async (tx) => {
     await lockKnowledge(tx, s);
     const run = await entity(tx, s, "knowledge_runs", runId);
+    const authority = data(run).githubAutomation;
+    if (authority)
+      await assertGithubRefresh(
+        tx,
+        s,
+        await entity(tx, s, "knowledge_drafts", data(run).draftId),
+        authority,
+      );
     if (data(run).status === "canceled")
       throw new DomainError("KNOWLEDGE_CANCELED", 409);
     const project = await tx.project.findUniqueOrThrow({
@@ -777,7 +875,16 @@ async function analyze(
     .strict();
   await owner(s);
   await scoped(s.workspaceId, s.projectId, async (tx) => {
+    await lockKnowledge(tx, s);
     const run = await entity(tx, s, "knowledge_runs", runId);
+    const authority = data(run).githubAutomation;
+    if (authority)
+      await assertGithubRefresh(
+        tx,
+        s,
+        await entity(tx, s, "knowledge_drafts", data(run).draftId),
+        authority,
+      );
     const mandate = await activeSpendMandateRef(tx, s);
     const project = await tx.project.findUniqueOrThrow({
       where: { id: s.projectId },
@@ -886,6 +993,19 @@ async function suspendKnowledge(
       await setSourceRights(tx, s, d.sourceId, { paused: true });
   }
 }
+function evidenceScope(input: KnowledgeDraft) {
+  if (input.kind === "github")
+    return [
+      input.kind,
+      input.connectionId,
+      input.repositoryId,
+      input.repository,
+      input.branch,
+      input.paths,
+    ];
+  return [input.kind, input.url];
+}
+
 async function invalidateChangedKnowledge(
   tx: DbTx,
   s: Scope,
@@ -893,6 +1013,8 @@ async function invalidateChangedKnowledge(
   snap: KnowledgeSnapshot,
 ) {
   const existing = await list(tx, s, "knowledge_proposals");
+  const options = await knowledgeOperationsSettings(tx, s);
+  const runSnapshots = new Map<string, KnowledgeSnapshot | null>();
   // A successful read invalidates changed evidence even when subsequent AI analysis is blocked.
   for (const p of existing.filter(
     (x) =>
@@ -903,15 +1025,111 @@ async function invalidateChangedKnowledge(
       file = snap.files.find((f) => f.path === d.evidence.path),
       currentHash = file?.hash ?? null;
     // The owner already chose to keep this statement for exactly this text.
-    if ("keptHash" in d && d.keptHash === currentHash) continue;
+    if (
+      d.keptHash === currentHash ||
+      (file && d.verifiedAgainst?.fileHash === currentHash)
+    )
+      continue;
     if (
       (file && file.hash !== d.evidence.fileHash) ||
       (!file &&
         (!snap.partial || snap.unreadablePaths?.includes(d.evidence.path)))
     ) {
+      if (
+        options.automation &&
+        !snap.partial &&
+        file &&
+        d.status === "accepted" &&
+        d.factId &&
+        d.sourceId &&
+        d.runId
+      ) {
+        if (!runSnapshots.has(d.runId)) {
+          const row = await tx.entity.findFirst({
+            where: {
+              workspaceId: s.workspaceId,
+              projectId: s.projectId,
+              kind: "knowledge_runs",
+              id: d.runId,
+            },
+          });
+          runSnapshots.set(d.runId, data(row).snapshot ?? null);
+        }
+        const old = runSnapshots
+          .get(d.runId)
+          ?.files.find(
+            (f) => f.path === file.path && f.hash === d.evidence.fileHash,
+          );
+        const located = old ? relocateEvidence(old, file, d.evidence) : null;
+        if (located) {
+          const source = data(await entity(tx, s, "sources", d.sourceId));
+          const fact = data(await entity(tx, s, "facts", d.factId));
+          const original = data(
+            await entity(tx, s, "knowledge_runs", d.runId),
+          ).input;
+          const current = data(
+            await entity(tx, s, "knowledge_drafts", draftId),
+          ).input;
+          const now = new Date();
+          const sameSource =
+            hash(evidenceScope(current)) === hash(evidenceScope(original));
+          const prose =
+            current.kind === "website" ||
+            (current.kind === "github" && /\.(md|txt)$/i.test(file.path));
+          if (
+            sameSource &&
+            prose &&
+            fact.status === "verified" &&
+            fact.sourceId === d.sourceId &&
+            fact.sourceGeneration === source.generation &&
+            source.status === "active" &&
+            fact.publicUse === d.publicUse &&
+            source.publicUse === d.publicUse &&
+            fact.modelUse === source.modelUse &&
+            source.modelUse === (original.rights?.modelUse ?? true) &&
+            hash(source.audiences) === hash(d.audiences) &&
+            hash(current.rights ?? null) === hash(original.rights ?? null) &&
+            (!fact.validFrom || Date.parse(fact.validFrom) <= now.getTime()) &&
+            (!fact.validUntil || Date.parse(fact.validUntil) > now.getTime()) &&
+            (!tracksFreshness(source) ||
+              sourceExpiry(source, now.getTime()).state !== "stale")
+          ) {
+            await update(tx, s, p, {
+              ...d,
+              verifiedAgainst: {
+                ...located,
+                fileHash: file.hash,
+                commit: snap.commit,
+                url: file.url
+                  ? file.url +
+                    (snap.commit
+                      ? `#L${located.startLine}-L${located.endLine}`
+                      : "")
+                  : null,
+              },
+            });
+            await audit(tx, s, "knowledge.proposal.evidence_relocated", p.id, {
+              sourceId: d.sourceId,
+              factId: d.factId,
+            });
+            continue;
+          }
+        }
+      }
       await suspendKnowledge(tx, s, d);
+      const changedEvidence = file
+        ? {
+            quote: file.text
+              .split("\n")
+              .slice(d.evidence.startLine - 1, d.evidence.endLine)
+              .join("\n")
+              .slice(0, 1000),
+            url: file.url ?? null,
+          }
+        : null;
       await update(tx, s, p, {
         ...d,
+        changedEvidence,
         status: "needs_review",
         invalidatedAt: new Date().toISOString(),
         changedHash: currentHash,
@@ -932,6 +1150,13 @@ export async function completeAnalysis(
   if (r.status === "completed") return true;
   const snap = r.snapshot as KnowledgeSnapshot;
   const input = knowledgeRunInput.parse(r.input);
+  if (r.githubAutomation)
+    await assertGithubRefresh(
+      tx,
+      s,
+      await entity(tx, s, "knowledge_drafts", r.draftId),
+      r.githubAutomation,
+    );
   // Only proposals whose quote matches the source word for word are kept; a
   // model's one inexact quote no longer discards the whole paid run. With
   // no exact quote at all the run fails as before.
@@ -950,8 +1175,8 @@ export async function completeAnalysis(
   });
   if (found.length && !proposals.length)
     throw new DomainError("KNOWLEDGE_EVIDENCE_INVALID", 409);
-  const old = await list(tx, s, "knowledge_proposals");
   await invalidateChangedKnowledge(tx, s, r.draftId, snap);
+  const old = await list(tx, s, "knowledge_proposals");
   for (const proposal of proposals) {
     const evidence = validateProposalEvidence(proposal, snap);
     const identity = hash({
@@ -967,7 +1192,14 @@ export async function completeAnalysis(
     if (
       old.some(
         (x) =>
-          data(x).identity === identity && data(x).status !== "needs_review",
+          (data(x).identity === identity &&
+            data(x).status !== "needs_review") ||
+          (data(x).status === "accepted" &&
+            data(x).draftId === r.draftId &&
+            data(x).statement === proposal.statement &&
+            data(x).evidence.path === evidence.path &&
+            data(x).evidence.quote === evidence.quote &&
+            data(x).verifiedAgainst?.fileHash === evidence.fileHash),
       )
     )
       continue;
@@ -1385,7 +1617,10 @@ export async function getKnowledgePreview(s: Scope, previewId: string) {
     const row = await entity(tx, s, "knowledge_previews", previewId);
     const d = data(row);
     const draft = await entity(tx, s, "knowledge_drafts", d.draftId);
-    if (d.expiresAt < Date.now() || draft.version !== d.draftVersion)
+    if (
+      d.expiresAt < Date.now() ||
+      !previewMatchesDraft(draft, previewId, d)
+    )
       throw new DomainError("KNOWLEDGE_PREVIEW_EXPIRED", 409);
     const snap = d.snapshot as KnowledgeSnapshot;
     return {

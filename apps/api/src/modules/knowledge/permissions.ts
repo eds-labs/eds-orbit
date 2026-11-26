@@ -18,6 +18,8 @@ export const knowledgeActionPermissions = actionPermissions("knowledge", {
     "knowledge-proposal-restore",
     "knowledge-proposal-edit",
     "knowledge-github-configure",
+    "knowledge-operations-settings",
+    "knowledge-github-refresh-settings",
     "knowledge-github-connect",
     "activate-index",
     "begin-index",

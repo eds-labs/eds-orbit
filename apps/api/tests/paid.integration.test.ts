@@ -104,6 +104,7 @@ import {
   setIndexRefreshAutomation,
   startIndexRefresh,
 } from "../src/modules/knowledge/index-refresh.ts";
+import { setKnowledgeOperations } from "../src/modules/knowledge/operations.ts";
 import { assertManagedIndexRefresh } from "../src/platform/knowledge/index-refresh-authority.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -2570,6 +2571,48 @@ describe.skipIf(!enabled)(
       ).rejects.toThrow("INDEX_REFRESH_STOPPED");
       expect((await run((tx) => getActiveIndex(tx, s))).id).toBe(prior.id);
       expect(provider.embed).not.toHaveBeenCalled();
+    });
+
+    it.each([429, null])("coalesces refresh work and automatically retries only a confirmed rejection (%s)", async (status) => {
+      await refreshCorpus();
+      await run(async (tx) => {
+        await setKnowledgeOperations(tx, s, { automation: true });
+        await setIndexRefreshAutomation(tx, s, { enabled: true, ...refreshConsent });
+      });
+      const observed = refreshTime(3);
+      expect((await refreshSweep(observed)).queued).toBe(0);
+      expect((await refreshSweep(new Date(+observed + 299_000))).queued).toBe(0);
+      expect((await refreshSweep(new Date(+observed + 301_000))).queued).toBe(1);
+      const first = (await refreshStatus()).run!;
+      const job = (await jobFor(first.indexId, "reindex"))!;
+      provider.embed.mockRejectedValueOnce(
+        Object.assign(new Error("synthetic provider outcome"), { status }),
+      );
+      const error = status === 429 ? "INDEX_RATE_LIMIT_RETRY_REQUIRED" : "REINDEX_COST_UNKNOWN";
+      await expect(buildIndexBatch(s, first.indexId, job.id)).rejects.toThrow(error);
+      await run((tx) =>
+        update(tx, s, job, { ...data(job), status: "blocked_dependency", error }),
+      );
+      const failedAt = refreshTime(9);
+      expect((await refreshSweep(failedAt)).queued).toBe(0);
+      const receipt = await run((tx) =>
+        tx.budgetReservation.findFirstOrThrow({ where: { category: "reindex" } }),
+      );
+      if (status === 429) {
+        expect(receipt).toMatchObject({ state: "settled", settledMicros: 0n });
+        expect((await refreshStatus()).run?.status).toBe("waiting_retry");
+        expect((await refreshSweep(new Date(+failedAt + 299_000))).queued).toBe(0);
+        expect((await refreshSweep(new Date(+failedAt + 301_000))).queued).toBe(1);
+        expect((await refreshStatus()).run!.indexId).not.toBe(first.indexId);
+      } else {
+        expect(receipt).toMatchObject({ state: "unknown", settledMicros: null });
+        expect((await refreshStatus()).run?.status).toBe("failed");
+        expect((await refreshSweep(refreshTime(30))).queued).toBe(0);
+        await expect(
+          run((tx) => startIndexRefresh(tx, s, refreshConsent)),
+        ).rejects.toThrow("INDEX_REFRESH_RECONCILIATION_REQUIRED");
+      }
+      expect(provider.embed).toHaveBeenCalledTimes(1);
     });
 
     it("index evaluation rejects insufficient negative coverage and denied budget before query transmission", async () => {

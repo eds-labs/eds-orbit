@@ -686,7 +686,10 @@ for (const [name, viewport] of [
       // the settings center, where the form lives.
       await page.goto(`/p/${project.id}/knowledge/github`);
       await expect(
-        page.getByRole("heading", { level: 1, name: "GitHub-App-Einstellungen" }),
+        page.getByRole("heading", {
+          level: 1,
+          name: "GitHub-App-Einstellungen",
+        }),
       ).toBeVisible();
       await expect(
         page
@@ -698,3 +701,79 @@ for (const [name, viewport] of [
     });
   });
 }
+
+test.describe("Knowledge pilot", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  test("submits a cited statement and opens the exact review on a small screen", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    const account = JSON.parse(
+      readFileSync(".runtime/knowledge-e2e.json", "utf8"),
+    );
+    const headers = { Origin: baseURL! };
+    const login = await context.request.post("/api/auth/sign-in/email", {
+      headers,
+      data: { email: account.email, password: account.password },
+    });
+    expect(login.status()).toBe(200);
+    await page.addInitScript(() => localStorage.setItem("orbit.locale", "de"));
+    const created = await context.request.post("/api/projects", {
+      headers,
+      data: {
+        name: "Synthetic Knowledge Pilot",
+        language: "de",
+        timezone: "Europe/Berlin",
+        workspaceId: account.workspaceId,
+      },
+    });
+    expect(created.status()).toBe(201);
+    const project = await created.json();
+    const settings = await context.request.post(
+      `/api/projects/${project.id}/actions/knowledge-operations-settings`,
+      { headers, data: { reviewExperience: true, monitoring: true } },
+    );
+    expect(settings.ok()).toBe(true);
+    await page.goto(project.setupPath);
+    await page
+      .getByRole("button", { name: "Aussage mit Beleg hinzufügen" })
+      .click();
+    await page.getByLabel("Name der Quelle").fill("Synthetische Produktseite");
+    await page
+      .getByLabel("Aussage", { exact: true })
+      .fill("Familienchat ist im synthetischen Premium-Angebot enthalten.");
+    await page
+      .getByLabel("Adresse der Quelle (HTTPS)")
+      .fill("https://example.com/plans");
+    await page
+      .getByLabel("Wörtlicher Auszug aus der Quelle")
+      .fill("Premium: Chat und Kalender.");
+    await page.getByRole("button", { name: "Weiter", exact: true }).click();
+    await expect(
+      page.getByText(/Aussagen werden erst nach Bestätigung/),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Zur Prüfung geben", exact: true })
+      .click();
+    await expect(
+      page.getByRole("link", { name: "Vorschläge prüfen" }),
+    ).toBeVisible({ timeout: 30000 });
+    const read = await context.request.get(
+      `/api/projects/${project.id}/knowledge-workspace`,
+    );
+    const result = await read.json();
+    expect(result.proposals).toHaveLength(1);
+    const proposal = result.proposals[0];
+    const sourcesHref = `/p/${project.id}/knowledge/review?proposal=${proposal.id}`;
+    await page.goto(sourcesHref);
+    await expect(
+      page.getByRole("heading", { name: proposal.data.statement }),
+    ).toBeVisible();
+    await expect(page.getByText("Premium: Chat und Kalender.")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Bestätigen", exact: true }),
+    ).toBeVisible();
+    await expectNoOverflow(page);
+  });
+});

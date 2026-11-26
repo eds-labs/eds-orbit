@@ -182,6 +182,11 @@ export async function siteRunDueAt(tx: DbTx, s: Scope, source: Fields) {
   const last = data(
     await tx.entity.findFirst({ where: owned(s, lastRunId, RUN_KIND) }),
   );
+  return siteRunDueFromLast(source.syncEveryHours, last);
+}
+
+/** Shared by the scheduler and the source overview. A null date means a read is active. */
+export function siteRunDueFromLast(syncEveryHours: number, last: Fields) {
   if (ACTIVE.includes(last.status)) return null;
   // One failed weekly run must not hide a change for another week (D-5).
   if (last.status === "failed" && last.errorCode !== "SOURCE_INACTIVE")
@@ -189,7 +194,7 @@ export async function siteRunDueAt(tx: DbTx, s: Scope, source: Fields) {
       (Date.parse(last.completedAt) || Date.parse(last.startedAt) || 0) +
       RETRY_HOURS * 3600000
     );
-  return (Date.parse(last.startedAt) || 0) + source.syncEveryHours * 3600000;
+  return (Date.parse(last.startedAt) || 0) + syncEveryHours * 3600000;
 }
 
 /** Ends a run that its job can no longer serve, so the source can run again. */

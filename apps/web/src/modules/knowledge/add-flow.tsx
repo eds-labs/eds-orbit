@@ -631,6 +631,9 @@ function Flow({
   const params = useSearchParams();
   const [init] = useState(() => initialFlow(params, data, locale));
   const [step, setStep] = useState<Step>(init.step);
+  const [intent, setIntent] = useState<"source" | "statement" | null>(null);
+  const simplified = data.operations?.reviewExperience === true;
+  const de = locale === "de";
   const [draft, setDraft] = useState<KnowledgeDraft>(init.draft);
   const [draftId, setDraftId] = useState(init.draftId);
   const [version, setVersion] = useState(init.version);
@@ -710,9 +713,10 @@ function Flow({
   // An error belongs to the step it happened on.
   const goBack = (to: Step) => {
     mutation.clear();
+    if (to === "what") setIntent(null);
     setStep(to);
   };
-  const chooseKind = (kind: Kind) => {
+  const chooseKind = (kind: Kind, statement = false) => {
     mutation.clear();
     setDraft(emptyDraft(kind, locale));
     setDraftId(null);
@@ -721,7 +725,7 @@ function Flow({
     setSite(null);
     setExcluded(new Set());
     setRights(defaultRights(kind));
-    setWay(kind === "github" ? "ai" : "whole");
+    setWay(statement ? "statement" : kind === "github" ? "ai" : "whole");
     dropPreview();
     setStep("content");
   };
@@ -958,11 +962,7 @@ function Flow({
     </Field>
   );
   const backToContent = (
-    <Button
-      variant="outline"
-      disabled={busy}
-      onClick={() => goBack("content")}
-    >
+    <Button variant="outline" disabled={busy} onClick={() => goBack("content")}>
       {t.back}
     </Button>
   );
@@ -998,8 +998,43 @@ function Flow({
         <h2 ref={heading} tabIndex={-1} className="knowledge-step-title">
           {titles[step]}
         </h2>
-        {step === "what" && (
+        {step === "what" && simplified && !intent && (
           <div className="knowledge-choices">
+            <Button
+              variant="outline"
+              className="knowledge-choice"
+              onClick={() => setIntent("source")}
+            >
+              {de ? "Quelle verbinden" : "Connect a source"}
+            </Button>
+            <Button
+              variant="outline"
+              className="knowledge-choice"
+              onClick={() => {
+                setIntent("statement");
+                chooseKind("manual", true);
+              }}
+            >
+              {de
+                ? "Aussage mit Beleg hinzufügen"
+                : "Add a statement with evidence"}
+            </Button>
+            <Button
+              variant="outline"
+              className="knowledge-choice"
+              onClick={() => chooseKind("file")}
+            >
+              {de ? "Dokument hochladen" : "Upload a document"}
+            </Button>
+          </div>
+        )}
+        {step === "what" && (!simplified || intent === "source") && (
+          <div className="knowledge-choices">
+            {simplified && (
+              <Button variant="ghost" onClick={() => setIntent(null)}>
+                {t.back}
+              </Button>
+            )}
             {(
               [
                 ["manual", t.whatManual, t.whatManualHint],
@@ -1007,20 +1042,25 @@ function Flow({
                 ["website", t.whatSite, t.whatSiteHint],
                 ["github", t.whatGithub, t.whatGithubHint],
               ] as const
-            ).map(([kind, label, hint]) => (
-              <Button
-                key={kind}
-                variant="outline"
-                className="knowledge-choice"
-                onClick={() => chooseKind(kind)}
-              >
-                <span>
-                  <strong>{label}</strong>
-                  <small>{hint}</small>
-                </span>
-                <ChevronRight aria-hidden="true" />
-              </Button>
-            ))}
+            )
+              .filter(
+                ([kind]) =>
+                  !simplified || kind === "website" || kind === "github",
+              )
+              .map(([kind, label, hint]) => (
+                <Button
+                  key={kind}
+                  variant="outline"
+                  className="knowledge-choice"
+                  onClick={() => chooseKind(kind)}
+                >
+                  <span>
+                    <strong>{label}</strong>
+                    <small>{hint}</small>
+                  </span>
+                  <ChevronRight aria-hidden="true" />
+                </Button>
+              ))}
           </div>
         )}
         {step === "content" && isSite && (
@@ -1110,15 +1150,61 @@ function Flow({
                     />
                   </Field>
                 )}
-                <Field label={t.text}>
+                <Field
+                  label={
+                    intent === "statement"
+                      ? de
+                        ? "Aussage"
+                        : "Statement"
+                      : t.text
+                  }
+                >
                   <Textarea
                     required
-                    maxLength={100000}
+                    maxLength={
+                      intent === "statement" ? STATEMENT_LIMIT : 100000
+                    }
                     rows={10}
                     value={draft.text}
                     onChange={(e) => change({ text: e.target.value })}
                   />
                 </Field>
+                {intent === "statement" && (
+                  <>
+                    <Field
+                      label={
+                        de ? "Adresse der Quelle (HTTPS)" : "Source URL (HTTPS)"
+                      }
+                    >
+                      <Input
+                        type="url"
+                        required
+                        maxLength={400}
+                        value={draft.evidenceUrl ?? ""}
+                        onChange={(event) =>
+                          change({ evidenceUrl: event.target.value })
+                        }
+                      />
+                    </Field>
+                    <Field
+                      label={
+                        de
+                          ? "Wörtlicher Auszug aus der Quelle"
+                          : "Exact excerpt from the source"
+                      }
+                    >
+                      <Textarea
+                        required
+                        maxLength={1000}
+                        rows={3}
+                        value={draft.evidenceQuote ?? ""}
+                        onChange={(event) =>
+                          change({ evidenceQuote: event.target.value })
+                        }
+                      />
+                    </Field>
+                  </>
+                )}
               </>
             )}
             {fileError && <Alert kind="error">{fileError}</Alert>}
@@ -1138,15 +1224,17 @@ function Flow({
         )}
         {step === "use" && (
           <>
-            <WayPicker
-              kind={draft.kind}
-              text={draft.text}
-              pages={pageCount}
-              value={way}
-              onChange={chooseWay}
-              disabled={busy}
-              t={t}
-            />
+            {intent !== "statement" && (
+              <WayPicker
+                kind={draft.kind}
+                text={draft.text}
+                pages={pageCount}
+                value={way}
+                onChange={chooseWay}
+                disabled={busy}
+                t={t}
+              />
+            )}
             {!previewOnly && (
               <fieldset className="knowledge-usage">
                 <legend>{t.usage}</legend>
@@ -1174,6 +1262,31 @@ function Flow({
                   </label>
                 ))}
               </fieldset>
+            )}
+            {simplified && !previewOnly && !noAudience && (
+              <p role="status">
+                {way === "whole"
+                  ? de
+                    ? "Der Inhalt wird durchsuchbar und erstellt keine bestätigte Aussage."
+                    : "The content becomes searchable and does not create a verified statement."
+                  : de
+                    ? "Aussagen werden erst nach Bestätigung verwendet."
+                    : "Statements are used after review."}{" "}
+                {rights.modelUse
+                  ? de
+                    ? "KI darf lesen."
+                    : "AI can read it."
+                  : de
+                    ? "KI-Zugriff ist aus."
+                    : "AI access is off."}{" "}
+                {rights.publicUse
+                  ? de
+                    ? "Öffentliche Verwendung ist vorgesehen."
+                    : "Public use is allowed."
+                  : de
+                    ? "Verwendung nur intern."
+                    : "Internal use only."}
+              </p>
             )}
             {noAudience && <Alert kind="warning">{t.noAudience}</Alert>}
             {!previewOnly && !noAudience && !rights.publicUse && (

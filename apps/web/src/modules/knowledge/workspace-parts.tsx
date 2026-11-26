@@ -17,6 +17,29 @@ export type Summary = {
   proposals: Entity[];
   facts: Entity[];
   sources: Entity[];
+  operations?: {
+    monitoring: boolean;
+    reviewExperience: boolean;
+    automation: boolean;
+    changed: number;
+    pending: number;
+    status: {
+      state:
+        "current" | "waiting" | "refreshing" | "action_required" | "manual";
+      lastSuccessAt: string | null;
+      nextAttemptAt: string | null;
+      stage: string | null;
+      marketingBlocked: boolean;
+    } | null;
+    issues: Array<{
+      id: string;
+      subject: string;
+      code: string;
+      href: string;
+      telegram: string;
+      label: { de: string; en: string };
+    }>;
+  };
 };
 export type Preview = {
   id: string;
@@ -104,6 +127,15 @@ export function knowledgeErrorText(
       ? "KI-Funktionen dürfen diese Inhalte nicht lesen. Erlaube es bei der Quelle oder wähle eine andere Verwendung."
       : "AI features may not read this content. Allow it on the source or choose another use.",
     GITHUB_NOT_CONFIGURED: t.githubSetupHint,
+    KNOWLEDGE_GITHUB_BRANCH_REQUIRED: de
+      ? "Wähle und speichere einen Branch, bevor du den Wochenabruf aktivierst."
+      : "Select and save a branch before enabling the weekly refresh.",
+    KNOWLEDGE_GITHUB_SCOPE_CHANGED: de
+      ? "Der Repository-Zugriff, Branch oder Pfade wurden geändert. Prüfe den neuen Umfang und aktiviere den Abruf erneut."
+      : "The repository access, branch or paths changed. Review the new scope and enable refresh again.",
+    KNOWLEDGE_GITHUB_PARTIAL: de
+      ? "Orbit konnte nur einen Teil der Dateien lesen. Prüfe die Pfadauswahl und Dateigrößen."
+      : "Orbit could read only some files. Check the selected paths and file sizes.",
     GITHUB_RECONNECT_REQUIRED: de
       ? "GitHub-Zugriff fehlt oder wurde entzogen. Verbinde dein Konto erneut."
       : "GitHub access is missing or revoked. Reconnect your account.",

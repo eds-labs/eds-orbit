@@ -46,7 +46,6 @@ import {
 } from "../connections/integrations.ts";
 import type {
   NotificationContribution,
-  NotificationRender,
 } from "../notifications/types.ts";
 import type {
   AssistantOverviewContribution,
@@ -427,6 +426,10 @@ const INTEGRATION_ID = /^[a-z][a-z0-9_.]{1,63}$/;
 // A notification kind, as the job key `notify:<kind>:<ref>` carries it.
 const NOTIFY_KIND = /^[a-z_]{1,40}$/;
 
+type RegisteredNotification = Omit<NotificationContribution, "kinds"> & {
+  owner: string;
+};
+
 type Registered = {
   registry: ValidatedRegistry;
   byModule: ReadonlyMap<string, ModuleContributions>;
@@ -440,10 +443,7 @@ type Registered = {
     string,
     { owner: string; handle: TelegramCallback }
   >;
-  notifications: ReadonlyMap<
-    string,
-    { owner: string; render: NotificationRender }
-  >;
+  notifications: ReadonlyMap<string, RegisteredNotification>;
   connectionProviders: ReadonlyMap<
     string,
     ConnectionProvider & { owner: string }
@@ -517,10 +517,7 @@ export function registerContributions(
     string,
     { owner: string; handle: TelegramCallback }
   >();
-  const notifications = new Map<
-    string,
-    { owner: string; render: NotificationRender }
-  >();
+  const notifications = new Map<string, RegisteredNotification>();
   const integrationDescriptors: (IntegrationDescriptor & { owner: string })[] = [];
   const projectIntegrations: [string, ProjectIntegrationsContribution][] = [];
   const connectionProviders = new Map<
@@ -557,7 +554,11 @@ export function registerContributions(
         problems.push(`invalid notification kind ${kind}`);
       if (notifications.has(kind))
         problems.push(`notification kind ${kind} registered twice`);
-      notifications.set(kind, { owner, render: c.notifications!.render });
+      notifications.set(kind, {
+        owner,
+        render: c.notifications!.render,
+        preserveUncertainDelivery: c.notifications!.preserveUncertainDelivery,
+      });
     }
     for (const [id, provider] of Object.entries(
       c.connections?.providers ?? {},

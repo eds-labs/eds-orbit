@@ -22,6 +22,8 @@ export const knowledgeModule: ServerModule = {
       "knowledge_github_config",
       "knowledge_github_connections",
       "knowledge_github_oauth",
+      "knowledge_operations_settings",
+      "knowledge_issues",
     ].map((kind) => ({
       kind,
       description: "Reviewed knowledge workspace storage",

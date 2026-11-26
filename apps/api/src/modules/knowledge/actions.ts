@@ -1,4 +1,9 @@
-import { setIndexRefreshAutomation, startIndexRefresh } from "./index-refresh.ts";
+import {
+  setIndexRefreshAutomation,
+  startIndexRefresh,
+} from "./index-refresh.ts";
+import { setKnowledgeOperations } from "./operations.ts";
+import { setGithubRefresh } from "./github-refresh.ts";
 import { queueIndexBuild } from "./evaluation-tools.ts";
 import {
   saveProfile,
@@ -92,6 +97,12 @@ const retrievalRequest = (input: ActionContext["input"]) => ({
  * live today; WP3.3 moves them into this module.
  */
 export const knowledgeActions: Record<string, ActionHandler> = {
+  "knowledge-operations-settings": sharedTransaction((tx, { scope, input }) =>
+    setKnowledgeOperations(tx, scope, input),
+  ),
+  "knowledge-github-refresh-settings": sharedTransaction(
+    (tx, { scope, input }) => setGithubRefresh(tx, scope, input),
+  ),
   "knowledge-file-read": ownTransaction(({ scope, input }) =>
     readKnowledgeFile(scope, input),
   ),

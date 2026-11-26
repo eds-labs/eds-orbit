@@ -157,22 +157,27 @@ async function buildIndexBatchTraced(
       },
       prepared.ai,
     );
-  } catch {
+  } catch (error) {
+    const rejected =
+      error instanceof Error && "status" in error && error.status === 429;
+    const code = rejected
+      ? "INDEX_RATE_LIMIT_RETRY_REQUIRED"
+      : "REINDEX_COST_UNKNOWN";
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      settle(tx, scope, prepared.reservationId, null),
+      settle(tx, scope, prepared.reservationId, rejected ? 0 : null),
     );
     // Telemetry only after the settlement committed.
     await recordSpan(scope, agentRunId, {
       type: "embedding",
       name: "embeddings.create",
       model: prepared.index.model,
-      status: "unknown",
-      errorCode: "REINDEX_COST_UNKNOWN",
+      status: rejected ? "failed" : "unknown",
+      errorCode: code,
       startedAt: callStartedAt,
       durationMs: Date.now() - callStartedAt.valueOf(),
       budgetReservationId: prepared.reservationId,
     });
-    throw new DomainError("REINDEX_COST_UNKNOWN");
+    throw new DomainError(code);
   }
   await scoped(scope.workspaceId, scope.projectId, (tx) =>
     settle(tx, scope, prepared.reservationId, output.usage.costMicros),

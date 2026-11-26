@@ -23,6 +23,7 @@ const QUEUES = [
   "embedding",
   "reindex",
   "knowledge_site_sync",
+  "knowledge_github_refresh",
   "index_evaluation",
   "index_evaluation_set",
   "analytics",
@@ -147,6 +148,11 @@ describe.skipIf(!enabled)(
           attempts: 3,
         },
         knowledge_site_sync: {
+          status: "blocked_dependency",
+          error: "NOT_FOUND",
+          attempts: 1,
+        },
+        knowledge_github_refresh: {
           status: "blocked_dependency",
           error: "NOT_FOUND",
           attempts: 1,

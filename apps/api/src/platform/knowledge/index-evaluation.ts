@@ -193,20 +193,27 @@ async function runIndexEvaluationBatch(
       { model: prepared.index.model, dimensions: prepared.index.dimensions },
       prepared.ai,
     );
-  } catch {
-    await run((tx) => settle(tx, s, prepared.reservationId, null));
+  } catch (error) {
+    const rejected =
+      error instanceof Error && "status" in error && error.status === 429;
+    const code = rejected
+      ? "INDEX_RATE_LIMIT_RETRY_REQUIRED"
+      : "INDEX_EVALUATION_COST_UNKNOWN";
+    await run((tx) =>
+      settle(tx, s, prepared.reservationId, rejected ? 0 : null),
+    );
     // Telemetry only after the settlement committed.
     await recordSpan(s, agentRunId, {
       type: "embedding",
       name: "embeddings.create",
       model: prepared.index.model,
-      status: "unknown",
-      errorCode: "INDEX_EVALUATION_COST_UNKNOWN",
+      status: rejected ? "failed" : "unknown",
+      errorCode: code,
       startedAt: callStartedAt,
       durationMs: Date.now() - callStartedAt.valueOf(),
       budgetReservationId: prepared.reservationId,
     });
-    throw new DomainError("INDEX_EVALUATION_COST_UNKNOWN");
+    throw new DomainError(code);
   }
   await run((tx) =>
     settle(tx, s, prepared.reservationId, response.usage.costMicros),

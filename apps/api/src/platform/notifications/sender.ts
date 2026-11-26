@@ -24,13 +24,11 @@ import { enabledModules } from "../modules/enforcement.ts";
  * preview is skipped). A project without a bound owner gets nothing and
  * nothing is retried (R61, R63).
  *
- * Delivery is tried once and retried three times with growing waits, but only
- * for network trouble and temporary Telegram errors. A delivery that still
- * fails is recorded on the job, audited and opened as the exception
- * `TELEGRAM_DELIVERY_FAILED` (kind and reference, never the token or the chat
- * id). It changes nothing about publishing. The outcome (`sent`, `skipped`,
- * `failed`) is kept on the job as `notification`, which also makes a second
- * call for the same job a no-op.
+ * Delivery retries temporary Telegram errors with growing waits. A contribution
+ * can restrict retries to explicit rate-limit refusals and preserve an ambiguous
+ * send as `unknown`. A delivery failure is audited and opens an exception with
+ * the kind and reference. Each final outcome is stored on the job, making a
+ * repeated call for the same job a no-op.
  */
 const BACKOFF_MS = [1000, 3000, 9000];
 // Telegram's limit under a photo; a longer text follows in its own message.
@@ -96,20 +94,30 @@ function waitBefore(error: unknown, attempt: number) {
 async function withRetries(
   send: () => Promise<unknown>,
   sleep: (ms: number) => Promise<void>,
+  preserveUncertainDelivery: boolean,
 ) {
   for (let attempt = 0; ; attempt++)
     try {
       return await send();
     } catch (error) {
+      if (
+        preserveUncertainDelivery &&
+        !(error instanceof ConnectorError && error.status === 429)
+      )
+        throw error;
       if (attempt >= BACKOFF_MS.length || !transient(error)) throw error;
       await sleep(waitBefore(error, attempt));
     }
 }
 
-async function deliver(steps: Step[], sleep: (ms: number) => Promise<void>) {
+async function deliver(
+  steps: Step[],
+  sleep: (ms: number) => Promise<void>,
+  preserveUncertainDelivery: boolean,
+) {
   for (const step of steps)
     try {
-      await withRetries(step.send, sleep);
+      await withRetries(step.send, sleep, preserveUncertainDelivery);
     } catch (error) {
       // A photo Telegram refuses for good (not a temporary error, not a revoked bot)
       // must not cost the owner the preview: the text goes out instead.
@@ -120,7 +128,7 @@ async function deliver(steps: Step[], sleep: (ms: number) => Promise<void>) {
         error.code === "PROVIDER_AUTH"
       )
         throw error;
-      await withRetries(step.fallback, sleep);
+      await withRetries(step.fallback, sleep, preserveUncertainDelivery);
     }
 }
 
@@ -160,7 +168,14 @@ export async function sendNotification(
     async (tx) => {
       const job = await entity(tx, scope, "jobs", jobId);
       const d = data(job);
-      if (d.notification) return null;
+      if (d.notification) {
+        if (d.notification.outcome === "sending")
+          await update(tx, scope, job, {
+            ...d,
+            notification: { outcome: "unknown", at: new Date().toISOString() },
+          });
+        return null;
+      }
       const skip = async (reason: string) => {
         await update(tx, scope, job, {
           ...d,
@@ -185,11 +200,22 @@ export async function sendNotification(
       if (!sender) return skip("NO_BOT");
       const built = await key.render(tx, scope, key.kind, key.ref);
       if ("skip" in built) return skip(built.skip);
-      return { kind: key.kind, ref: key.ref, sender, message: built };
+      if (key.preserveUncertainDelivery)
+        await update(tx, scope, job, {
+          ...d,
+          notification: { outcome: "sending", at: new Date().toISOString() },
+        });
+      return {
+        kind: key.kind,
+        ref: key.ref,
+        sender,
+        message: built,
+        preserveUncertainDelivery: key.preserveUncertainDelivery === true,
+      };
     },
   );
   if (!prepared) return;
-  const { kind, ref, sender, message } = prepared;
+  const { kind, ref, sender, message, preserveUncertainDelivery } = prepared;
   // The image is read outside the transaction (it may live in Drive); without it the text goes alone.
   const image = message.image ? await maybe(message.image) : null;
   const photo = image && image.byteLength <= PHOTO_MAX_BYTES ? image : null;
@@ -216,12 +242,17 @@ export async function sendNotification(
     steps.push({ send: text });
   } else steps.push({ send: text });
   try {
-    await deliver(steps, sleep);
+    await deliver(steps, sleep, preserveUncertainDelivery);
   } catch (error) {
     const code = error instanceof ConnectorError ? error.code : "UNEXPECTED";
     const status =
       error instanceof ConnectorError ? (error.status ?? null) : null;
-    await record(scope, jobId, { outcome: "failed", code }, async (tx) => {
+    const outcome =
+      preserveUncertainDelivery &&
+      (status === null || status === 408 || status >= 500)
+        ? "unknown"
+        : "failed";
+    await record(scope, jobId, { outcome, code }, async (tx) => {
       await exception(tx, scope, "TELEGRAM_DELIVERY_FAILED", `${kind}:${ref}`);
       await audit(tx, scope, "telegram.delivery_failed", jobId, {
         kind,

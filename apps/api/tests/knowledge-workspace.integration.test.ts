@@ -37,11 +37,28 @@ import {
   restoreProposal,
   editProposal,
 } from "../src/modules/knowledge/workspace.ts";
+import {
+  knowledgeIssueViews,
+  knowledgeTelegramNotifications,
+  lockKnowledge,
+  recordKnowledgeIssue,
+  resolveKnowledgeIssue,
+  setKnowledgeOperations,
+} from "../src/modules/knowledge/operations.ts";
+import {
+  githubRefreshScheduler,
+  runGithubRefresh,
+  setGithubRefresh,
+} from "../src/modules/knowledge/github-refresh.ts";
+import { indexRefreshScheduler } from "../src/modules/knowledge/index-refresh.ts";
 import { knowledgeActions } from "../src/modules/knowledge/actions.ts";
 import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
 import { can } from "../src/platform/tenancy/permissions.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
-import { retrieve } from "../../../packages/knowledge/src/index.ts";
+import {
+  getActiveIndex,
+  retrieve,
+} from "../../../packages/knowledge/src/index.ts";
 import {
   resumeSource,
   ingest,
@@ -156,6 +173,320 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     return { draft, preview, job };
   };
   const proposals = () => run((tx) => list(tx, s, "knowledge_proposals"));
+  it("shows one operational issue and queues one alert and recovery for the same outage", async () => {
+    vi.stubEnv("ORBIT_TELEGRAM", "true");
+    try {
+      const at = new Date();
+      await run(async (tx) => {
+        await setKnowledgeOperations(tx, s, { monitoring: true });
+        await create(tx, s, "telegram_connections", { status: "linked" });
+        await lockKnowledge(tx, s);
+        await recordKnowledgeIssue(
+          tx,
+          s,
+          "index",
+          s.projectId,
+          "PAID_MANDATE_REQUIRED",
+          at,
+        );
+        await recordKnowledgeIssue(
+          tx,
+          s,
+          "index",
+          s.projectId,
+          "PAID_MANDATE_REQUIRED",
+          at,
+        );
+        const [issue] = await knowledgeIssueViews(tx, s);
+        expect(issue?.telegram).toBe("pending");
+        const jobs = (await list(tx, s, "jobs")).filter(
+          (x) => data(x).topic === "telegram_notification",
+        );
+        expect(jobs).toHaveLength(1);
+        const [alert] = jobs;
+        const rendered = await knowledgeTelegramNotifications.render(
+          tx,
+          s,
+          "knowledge_operation_problem",
+          issue!.id,
+        );
+        expect(rendered).toMatchObject({
+          buttons: [{ url: expect.stringContaining("/ai/budget") }],
+        });
+        await update(tx, s, alert!, {
+          ...data(alert),
+          notification: { outcome: "sent" },
+        });
+        await resolveKnowledgeIssue(tx, s, "index", s.projectId, at);
+        await resolveKnowledgeIssue(tx, s, "index", s.projectId, at);
+        expect(await knowledgeIssueViews(tx, s)).toEqual([]);
+        expect(
+          (await list(tx, s, "jobs")).filter(
+            (x) => data(x).topic === "telegram_notification",
+          ),
+        ).toHaveLength(2);
+        expect(
+          await knowledgeTelegramNotifications.render(
+            tx,
+            s,
+            "knowledge_operation_recovered",
+            issue!.id,
+          ),
+        ).toHaveProperty("text");
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("shows an index blocker even when no refresh can be created", async () => {
+    const at = new Date();
+    await run(async (tx) => {
+      await setKnowledgeOperations(tx, s, {
+        monitoring: true,
+        automation: true,
+      });
+      await getActiveIndex(tx, s);
+      await create(tx, s, "knowledge_index_refresh_settings", {
+        enabled: true,
+        ownerId: s.userId,
+        consentedAt: new Date(at.getTime() - 600000).toISOString(),
+      });
+      await indexRefreshScheduler.sweep(tx, s, at);
+      await indexRefreshScheduler.sweep(tx, s, at);
+      expect(await knowledgeIssueViews(tx, s)).toMatchObject([
+        { code: "EVALUATION_SET_TOO_SMALL" },
+      ]);
+      expect(await list(tx, s, "knowledge_index_refresh_runs")).toHaveLength(0);
+    });
+  });
+
+  it("preserves a confirmed fact and its source when only unrelated text changes", async () => {
+    await run((tx) => setKnowledgeOperations(tx, s, { automation: true }));
+    const quote = "Family chat is included in Premium.";
+    const text = `# Plans\n\n## Premium\n\n${quote}\n\nOriginal footer.`;
+    const makeSnapshot = (
+      value: string,
+      commit: string,
+    ): KnowledgeSnapshot => ({
+      commit,
+      files: [
+        {
+          path: "docs/plans.md",
+          text: value,
+          hash: hash(value),
+          url:
+            "https://github.com/example/family/blob/" +
+            commit +
+            "/docs/plans.md",
+        },
+      ],
+      partial: false,
+      skipped: 0,
+    });
+    const input = knowledgeDraft.parse({
+      name: "GitHub product facts",
+      kind: "github",
+      connectionId: randomUUID(),
+      repositoryId: 1,
+      repository: "example/family",
+      branch: "main",
+      paths: ["docs/"],
+      rights: {
+        marketing: true,
+        support: false,
+        modelUse: true,
+        publicUse: true,
+      },
+    });
+    const draft = await saveDraft(s, input);
+    await run(async (tx) => {
+      const job = await create(tx, s, "knowledge_runs", {
+        draftId: draft.id,
+        input,
+        snapshot: makeSnapshot(text, "a".repeat(40)),
+        status: "queued",
+      });
+      await completeAnalysis(tx, s, job.id, [
+        {
+          statement: quote,
+          stage: "documented",
+          topic: "features",
+          reason: "Source",
+          evidence: { path: "docs/plans.md", quote, startLine: 5, endLine: 5 },
+        },
+      ]);
+    });
+    const [candidate] = await proposals();
+    const accepted = await approve(candidate, {
+      publicUse: true,
+      audiences: ["marketing"],
+    });
+    const factId = data(accepted).factId as string;
+    const sourceId = data(accepted).sourceId as string;
+    const originalFact = await run((tx) => entity(tx, s, "facts", factId));
+    vi.mocked(readRepository).mockResolvedValueOnce(
+      makeSnapshot(
+        text.replace("Original footer.", "Updated footer."),
+        "b".repeat(40),
+      ),
+    );
+    await previewDraft(s, { draftId: draft.id });
+    const [updated] = await proposals();
+    expect(data(updated)).toMatchObject({
+      status: "accepted",
+      factId,
+      sourceId,
+      verifiedAgainst: { startLine: 5, commit: "b".repeat(40) },
+    });
+    expect((await run((tx) => entity(tx, s, "facts", factId))).version).toBe(
+      originalFact.version,
+    );
+    vi.mocked(readRepository).mockResolvedValueOnce(
+      makeSnapshot(
+        text.replace(quote, "Family chat is no longer in Premium."),
+        "c".repeat(40),
+      ),
+    );
+    await previewDraft(s, { draftId: draft.id });
+    const [changed] = await proposals();
+    expect(data(changed)).toMatchObject({
+      status: "needs_review",
+      changedEvidence: { quote: "Family chat is no longer in Premium." },
+    });
+    expect(data(await run((tx) => entity(tx, s, "facts", factId))).status).toBe(
+      "revoked",
+    );
+  });
+
+  it("stores a manual statement separately from its cited excerpt, without invoking a model", async () => {
+    const statement = "Family chat belongs to FamilyPlan Premium.";
+    const evidenceQuote = "The Premium feature list includes Chat.";
+    const { job } = await prepare(
+      knowledgeDraft.parse({
+        ...manual(),
+        text: statement,
+        evidenceQuote,
+        evidenceUrl: "https://example.com/plans",
+      }),
+    );
+    await runAnalysis(s, job.id);
+    const [proposal] = await proposals();
+    expect(data(proposal)).toMatchObject({
+      statement,
+      evidence: {
+        quote: evidenceQuote,
+        url: "https://example.com/plans",
+      },
+    });
+    expect(respond).not.toHaveBeenCalled();
+  });
+
+  it("keeps the weekly GitHub preview usable after the read is recorded, without calling the model", async () => {
+    const connection = await run(async (tx) => {
+      await setKnowledgeOperations(tx, s, { automation: true });
+      return create(tx, s, "knowledge_github_connections", { actorId: s.userId });
+    });
+    const draft = await saveDraft(
+      s,
+      knowledgeDraft.parse({
+        name: "GitHub pilot",
+        kind: "github",
+        connectionId: connection.id,
+        repositoryId: 1,
+        repository: "example/family",
+        branch: "main",
+        paths: ["docs/"],
+      }),
+    );
+    const configured = await run((tx) =>
+      setGithubRefresh(tx, s, {
+        draftId: draft.id,
+        version: draft.version,
+        enabled: true,
+      }),
+    );
+    const future = new Date(Date.parse(configured.nextAt!) + 1000);
+    const job = await run(async (tx) => {
+      await lockKnowledge(tx, s);
+      await githubRefreshScheduler(tx, s, future);
+      return data(
+        (await list(tx, s, "jobs")).find(
+          (row) => data(row).topic === "knowledge_github_refresh",
+        ),
+      );
+    });
+    const text = "FamilyPlan includes a shared calendar.";
+    vi.mocked(readRepository).mockResolvedValueOnce({
+      commit: "a".repeat(40),
+      files: [{ path: "docs/calendar.md", text, hash: hash(text) }],
+      partial: false,
+      skipped: 0,
+    });
+    await runGithubRefresh(s, draft.id, job.approval, job.sponsorId);
+    const stored = await run((tx) => entity(tx, s, "knowledge_drafts", draft.id));
+    const { previewId } = data(stored).githubRefresh;
+    expect(await getKnowledgePreview(s, previewId)).toMatchObject({
+      files: [{ path: "docs/calendar.md" }],
+    });
+    expect((await analysisPreflight(s, { previewId })).blockers).toEqual([
+      "MODEL_USE_FORBIDDEN",
+    ]);
+    expect(respond).not.toHaveBeenCalled();
+  });
+
+  it("queues one authorized GitHub refresh and refuses an edited source scope", async () => {
+    const connection = await run(async (tx) => {
+      await setKnowledgeOperations(tx, s, {
+        automation: true,
+        monitoring: true,
+      });
+      return create(tx, s, "knowledge_github_connections", {
+        actorId: s.userId,
+      });
+    });
+    const draft = await saveDraft(
+      s,
+      knowledgeDraft.parse({
+        name: "GitHub pilot",
+        kind: "github",
+        connectionId: connection.id,
+        repositoryId: 1,
+        repository: "example/family",
+        branch: "main",
+        paths: ["docs/"],
+      }),
+    );
+    const configured = await run((tx) =>
+      setGithubRefresh(tx, s, {
+        draftId: draft.id,
+        version: draft.version,
+        enabled: true,
+      }),
+    );
+    const future = new Date(Date.parse(configured.nextAt!) + 1000);
+    const job = await run(async (tx) => {
+      await lockKnowledge(tx, s);
+      await githubRefreshScheduler(tx, s, future);
+      await githubRefreshScheduler(tx, s, future);
+      const jobs = (await list(tx, s, "jobs")).filter(
+        (x) => data(x).topic === "knowledge_github_refresh",
+      );
+      expect(jobs).toHaveLength(1);
+      const current = await entity(tx, s, "knowledge_drafts", draft.id);
+      await update(tx, s, current, {
+        ...data(current),
+        input: { ...data(current).input, paths: ["private/"] },
+      });
+      return data(jobs[0]!);
+    });
+    await runGithubRefresh(s, draft.id, job.approval, job.sponsorId);
+    expect(readRepository).not.toHaveBeenCalled();
+    expect(await run((tx) => knowledgeIssueViews(tx, s))).toMatchObject([
+      { code: "KNOWLEDGE_GITHUB_SCOPE_CHANGED" },
+    ]);
+  });
+
   const approve = async (p: any, extra = {}) =>
     decideProposal(s, {
       proposalId: p.id,
