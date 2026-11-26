@@ -26,7 +26,7 @@ describe.skipIf(!enabled)("social module routes", () => {
   const ip = () => `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`;
   const call = (
     who: keyof typeof ids,
-    method: "GET" | "PUT",
+    method: "GET" | "PUT" | "POST",
     url: string,
     payload?: object,
     project = projectId,
@@ -158,6 +158,16 @@ describe.skipIf(!enabled)("social module routes", () => {
       version: saved.json().version,
     });
     expect(invalid.statusCode).toBe(400);
+  });
+
+  it("lets only the project owner reach manual TikTok account validation", async () => {
+    await setModule(true);
+    const route = "/social/accounts/tiktok";
+    for (const who of ["editor", "viewer"] as const) {
+      expect((await call(who, "POST", route, { handle: "@synthetic" })).statusCode).toBe(403);
+    }
+    expect((await call("editor", "POST", route, {}, otherProjectId)).statusCode).toBe(404);
+    expect((await call("owner", "POST", route, {})).statusCode).toBe(400);
   });
 
   it("hides the project from members of other projects", async () => {

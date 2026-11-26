@@ -741,8 +741,9 @@ describe("source list", () => {
     expect(render("sources")).toContain("knowledge-source-focused");
   });
   it("does not call a source unread that was read before", () => {
+    const recentlyRead = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     response.value.drafts = [
-      draft({ status: "draft", lastSuccessfulSyncAt: "2026-10-24T17:39:00Z" }),
+      draft({ status: "draft", lastSuccessfulSyncAt: recentlyRead }),
     ];
     response.value.runs = [
       { id: "r", data: { draftId: "d", status: "completed" } },

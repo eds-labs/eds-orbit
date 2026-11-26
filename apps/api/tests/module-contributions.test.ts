@@ -510,6 +510,12 @@ describe("module contributions", () => {
       // The social module's developer apps and managed accounts (ADR 0020).
       "social.app.meta",
       "social.app.x",
+      "social.app.linkedin",
+      "social.app.tiktok",
+      "social.app.youtube",
+      "social.account.linkedin",
+      "social.account.tiktok",
+      "social.account.youtube",
       "social.account.x",
       "social.account.facebook",
       "social.account.instagram",
@@ -526,9 +532,9 @@ describe("module contributions", () => {
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
     for (const id of registeredConnectionProviderIds().slice(6, 8))
       expect(registeredConnectionProvider(id)?.owner).toBe("ads");
-    for (const id of registeredConnectionProviderIds().slice(9, 15))
+    for (const id of registeredConnectionProviderIds().filter((id) => id.startsWith("social.")))
       expect(registeredConnectionProvider(id)?.owner).toBe("social");
-    for (const id of registeredConnectionProviderIds().slice(15))
+    for (const id of ["postiz", "matomo", "slack"])
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();
