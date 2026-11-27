@@ -13,6 +13,8 @@ import {
 // passages it receives, `embed` maps each text to its document's one-hot
 // vector. Budget, settlement, telemetry, jobs and the SQL evaluation are real.
 const DIMENSIONS = 1536;
+const SHARED_ANSWER =
+  "Family members can open the shared shopping list from the household dashboard.";
 const oneHot = (position: number) =>
   Array.from({ length: DIMENSIONS }, (_, i) => (i === position ? 1 : 0));
 const mocked = vi.hoisted(() => ({
@@ -29,7 +31,10 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
       Array.from({ length: input.questionsPerPassage }, (_, n) => ({
         passage: p.passage,
         // "Doc 7" in the title: the question finds document 7's vector.
-        question: `What does ${p.title} say, variant ${n + 1}?`,
+        question: [1, 2].some((doc) => p.title === `Doc ${doc}`)
+          ? `Where is the household shopping list (${p.title}, variant ${n + 1})?`
+          : `What does ${p.title} say, variant ${n + 1}?`,
+        answerQuote: p.text.includes(SHARED_ANSWER) ? SHARED_ANSWER : p.text,
       })),
     );
     return {
@@ -60,9 +65,15 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   embed: vi.fn(async (texts: string[]) => {
     mocked.embedCalls++;
     return {
-      vectors: texts.map((text) =>
-        oneHot(Number(/Doc (\d+)/.exec(text)?.[1] ?? 1500)),
-      ),
+      vectors: texts.map((text) => {
+        const doc = Number(/Doc (\d+)/.exec(text)?.[1] ?? 1500);
+        if (doc !== 1) return oneHot(doc);
+        // Doc 2 gives the same answer and ranks first. Doc 1 ranks below
+        // every unrelated passage, so only the equivalent answer can score.
+        return oneHot(2).map((value, dimension) =>
+          dimension === 1 ? -1 : value,
+        );
+      }),
       usage: {
         model: "text-embedding-3-small",
         inputTokens: texts.length * 10,
@@ -89,6 +100,7 @@ import {
   latestEvaluations,
   queueEvaluationSet,
   startEvaluationSet,
+  type EvaluationCase,
 } from "../src/platform/knowledge/evaluation-set.ts";
 import { runIndexEvaluation } from "../src/platform/knowledge/index-evaluation.ts";
 import { create, data, entity } from "../src/shared.ts";
@@ -135,7 +147,9 @@ describe.skipIf(!enabled)("generated index evaluation sets", () => {
           sourceId: n <= 20 ? project.sourceId : internal.id,
           externalId: `synthetic-doc-${n}`,
           title: `Doc ${n}`,
-          text: `Document number ${n} explains one synthetic topic of the product in a full sentence.`,
+          text:
+            `Document number ${n} explains one synthetic topic of the product in a full sentence.` +
+            (n <= 2 ? ` ${SHARED_ANSWER}` : ""),
           mimeType: "text/plain",
           language: "en",
           validFrom: past,
@@ -241,11 +255,21 @@ describe.skipIf(!enabled)("generated index evaluation sets", () => {
       title: expect.stringMatching(/^Doc \d+$/),
       snippet: expect.stringContaining("synthetic topic"),
     });
+    const equivalentCases = (reviewed.cases as EvaluationCase[]).filter(
+      (c) => c.expectedChunkIds.length && c.query.includes("(Doc 1,"),
+    );
+    expect(equivalentCases).toHaveLength(2);
+    expect(equivalentCases.every((c) => c.expectedChunkIds.length === 2)).toBe(
+      true,
+    );
     // Dropping two positives still meets the coverage rules.
+    const excluded = (reviewed.cases as EvaluationCase[])
+      .filter((c) => c.expectedChunkIds.length && !equivalentCases.includes(c))
+      .slice(0, 2);
     await run((tx) =>
       startEvaluationSet(tx, scope(), {
         evaluationId: queued.id,
-        excludedCaseIds: ["q1", "q2"],
+        excludedCaseIds: excluded.map((c) => c.id),
         confirmQueriesMayBeSentToOpenAI: true,
       }),
     );
@@ -261,6 +285,12 @@ describe.skipIf(!enabled)("generated index evaluation sets", () => {
       provenance: "live",
       cases: 60,
     });
+    for (const c of equivalentCases)
+      expect(evaluated.evaluation.results).toContainEqual({
+        id: c.id,
+        rank: 1,
+        forbiddenHits: 0,
+      });
     const index = await run((tx) =>
       tx.knowledgeIndex.findUniqueOrThrow({ where: { id: indexId } }),
     );

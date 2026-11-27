@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEvaluationCases,
+  groundedAnswerQuoteHash,
   selectPassages,
   type Passage,
 } from "./evaluation-set.ts";
@@ -70,6 +71,88 @@ describe("generated evaluation sets", () => {
       purpose: "internal",
     });
     expect(new Set(cases.map((c) => c.id)).size).toBe(cases.length);
+  });
+
+  it("credits the same grounded answer in other eligible passages regardless of sampling", () => {
+    const answer =
+      "Family members can open the shared shopping list from the household dashboard.";
+    const original = {
+      ...passage(1, false, "en"),
+      text: `Shopping list setup\n\n${answer}`,
+    };
+    const exactCopy = { ...original, chunkId: "c2", publicEligible: true };
+    const sameAnswer = {
+      ...passage(3, true, "en"),
+      text: `First choose a household. ${answer} You can then add an item.`,
+    };
+    const differentLanguage = { ...sameAnswer, chunkId: "c4", language: "de" };
+    const alteredAnswer = {
+      ...sameAnswer,
+      chunkId: "c5",
+      text: answer.replace("can open", "cannot open"),
+    };
+    const fragmentOnly = {
+      ...sameAnswer,
+      chunkId: "c6",
+      text: `The instructions say that ${answer}`,
+    };
+
+    const answerQuoteHash = groundedAnswerQuoteHash(original.text, answer);
+    expect(answerQuoteHash).toBeDefined();
+    const { cases } = buildEvaluationCases(
+      [
+        original,
+        exactCopy,
+        sameAnswer,
+        differentLanguage,
+        alteredAnswer,
+        fragmentOnly,
+      ],
+      [
+        {
+          chunkId: original.chunkId,
+          question: "Where do I find my household's grocery list?",
+          answerQuoteHash,
+        },
+      ],
+    );
+
+    expect(cases[0]?.expectedChunkIds).toEqual(["c1", "c2", "c3"]);
+    expect(cases[1]).toMatchObject({
+      purpose: "public",
+      expectedChunkIds: [],
+      forbiddenChunkIds: ["c1"],
+    });
+  });
+
+  it("keeps older questions and refuses to credit an ungrounded answer quote", () => {
+    const first = passage(1, true, "en");
+    const other = {
+      ...passage(2, true, "en"),
+      text: "Family members can open the shared shopping list from the household dashboard.",
+    };
+    const { cases } = buildEvaluationCases(
+      [first, { ...first, chunkId: "exact-copy" }, other],
+      [
+        {
+          chunkId: first.chunkId,
+          question: "What does the first passage cover?",
+        },
+        {
+          chunkId: first.chunkId,
+          question: "What is in the first passage?",
+          answerQuoteHash: groundedAnswerQuoteHash(other.text, other.text),
+        },
+      ],
+    );
+    expect(groundedAnswerQuoteHash(first.text, other.text)).toBeUndefined();
+    expect(
+      groundedAnswerQuoteHash(other.text, other.text.slice(0, -1)),
+    ).toBeUndefined();
+    expect(cases.slice(0, 2).map((c) => c.expectedChunkIds)).toEqual([
+      ["c1", "exact-copy"],
+      ["c1", "exact-copy"],
+    ]);
   });
 
   it("ignores questions about passages outside the set", () => {

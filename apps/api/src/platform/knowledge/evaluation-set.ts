@@ -5,6 +5,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   assertIndexCorpusCurrent,
   describeIndexGenerations,
+  hash,
   KnowledgeError,
   sourceData,
 } from "../../../../../packages/knowledge/src/index.ts";
@@ -35,6 +36,30 @@ const MAX_POSITIVES = 100;
 const MAX_NEGATIVES = 20;
 const MIN_POSITIVES = 48;
 const MIN_NEGATIVES = 12;
+const MAX_EXPECTED_CHUNKS = 100;
+const MIN_ANSWER_CHARS = 40;
+const MAX_ANSWER_CHARS = 300;
+const sentenceSegmenter = new Intl.Segmenter(undefined, {
+  granularity: "sentence",
+});
+const normalizeQuote = (text: string) =>
+  text.normalize("NFC").replace(/\s+/gu, " ").trim();
+const answerSentences = (text: string) =>
+  Array.from(sentenceSegmenter.segment(text), ({ segment }) =>
+    normalizeQuote(segment),
+  ).filter(
+    (sentence) =>
+      sentence.length >= MIN_ANSWER_CHARS &&
+      sentence.length <= MAX_ANSWER_CHARS &&
+      /[.!?]["'”’»)]*$/u.test(sentence),
+  );
+
+/** Store a reference to a verified sentence without retaining another copy of source text. */
+export function groundedAnswerQuoteHash(text: string, answerQuote: string) {
+  const quote = normalizeQuote(answerQuote);
+  return answerSentences(text).includes(quote) ? hash(quote) : undefined;
+}
+
 // Passage text sent to the model, per passage.
 const PASSAGE_CHARS = 1500;
 // Fixed request part: instructions, schema and the passage wrapper.
@@ -47,13 +72,19 @@ const LIMITS = {
   maxInputBytes: 64_000,
 };
 export const EVALUATION_SET_INSTRUCTIONS =
-  'Write test questions for a retrieval evaluation of this project\'s knowledge. For each numbered passage, write exactly the requested number of different questions that a member of the project could ask and that this passage answers. Write each question in the passage\'s language. Paraphrase: do not copy sentences, headings or rare identifiers from the passage, and never include the answer. Each question has at most 200 characters. Return {"questions":[{"passage":<number>,"question":"..."}]}.';
+  'Write test questions for a retrieval evaluation of this project\'s knowledge. For each numbered passage, write exactly the requested number of different questions in its language. Each question must be self-contained, at most 200 characters, and ask about a specific feature, rule, plan or action. Keep the names needed to distinguish similar topics, but paraphrase the wording and never include the answer in the question. Use the title and heading only for context. In answerQuote, copy one complete sentence verbatim from the supplied text that independently answers the entire question, including any qualifications. Use an empty string if there is no such sentence between 40 and 300 characters. Return {"questions":[{"passage":<number>,"question":"...","answerQuote":"..."}]}.';
 
 const questionsOutput = z
   .object({
     questions: z
       .array(
-        z.object({ passage: z.number().int(), question: z.string() }).strict(),
+        z
+          .object({
+            passage: z.number().int(),
+            question: z.string(),
+            answerQuote: z.string(),
+          })
+          .strict(),
       )
       .max(PASSAGES_PER_BATCH * 3),
   })
@@ -68,7 +99,12 @@ export type Passage = {
   /** Found by public questions now (public use, no embargo). */
   publicEligible: boolean;
 };
-export type GeneratedQuestion = { chunkId: string; question: string };
+export type GeneratedQuestion = {
+  chunkId: string;
+  question: string;
+  // Sets already in flight can still contain questions without a quote.
+  answerQuoteHash?: string;
+};
 export type EvaluationCase = {
   id: string;
   query: string;
@@ -102,7 +138,16 @@ export function buildEvaluationCases(
   passages: Passage[],
   questions: GeneratedQuestion[],
 ): { cases: EvaluationCase[]; kinds: Record<string, CaseKind> } {
-  const byId = new Map(passages.map((p) => [p.chunkId, p]));
+  const byId = new Map(
+    passages.map((p) => [
+      p.chunkId,
+      {
+        ...p,
+        normalizedText: normalizeQuote(p.text),
+        answerHashes: new Set(answerSentences(p.text).map(hash)),
+      },
+    ]),
+  );
   const cases: EvaluationCase[] = [];
   const kinds: Record<string, CaseKind> = {};
   const add = (kind: CaseKind, c: Omit<EvaluationCase, "id">) => {
@@ -113,10 +158,27 @@ export function buildEvaluationCases(
   const usable = questions.filter((q) => byId.has(q.chunkId));
   for (const q of usable.slice(0, MAX_POSITIVES)) {
     const p = byId.get(q.chunkId)!;
+    const answerHash =
+      q.answerQuoteHash && p.answerHashes.has(q.answerQuoteHash)
+        ? q.answerQuoteHash
+        : undefined;
+    // Label equivalent passages before ranking, within the same language.
+    // An unverified model quote can never add a reference answer.
+    const expectedChunkIds = [p.chunkId];
+    for (const candidate of byId.values()) {
+      if (expectedChunkIds.length >= MAX_EXPECTED_CHUNKS) break;
+      if (
+        candidate.chunkId !== p.chunkId &&
+        candidate.language === p.language &&
+        (candidate.normalizedText === p.normalizedText ||
+          (answerHash && candidate.answerHashes.has(answerHash)))
+      )
+        expectedChunkIds.push(candidate.chunkId);
+    }
     // Internal questions see every model-usable passage.
     add("positive", {
       query: q.question,
-      expectedChunkIds: [p.chunkId],
+      expectedChunkIds,
       forbiddenChunkIds: [],
       language: p.language,
       purpose: "internal",
@@ -396,7 +458,11 @@ async function generateBatch(s: Scope, requestId: string, _jobId: string) {
       if (own.size >= perPassage || own.has(text.toLowerCase())) continue;
       own.add(text.toLowerCase());
       seen.set(q.passage, own);
-      fresh.push({ chunkId: passage.chunkId, question: text });
+      const answerQuoteHash = groundedAnswerQuoteHash(
+        passage.text.slice(0, PASSAGE_CHARS),
+        q.answerQuote,
+      );
+      fresh.push({ chunkId: passage.chunkId, question: text, answerQuoteHash });
     }
     questions = [...questions, ...fresh];
   }
@@ -424,8 +490,8 @@ async function generateBatch(s: Scope, requestId: string, _jobId: string) {
     }
     const selectedIds = new Set(selected.map((p) => p.chunkId));
     const { cases, kinds } = buildEvaluationCases(
-      passages.filter((p) => selectedIds.has(p.chunkId)),
-      questions,
+      passages,
+      questions.filter((q) => selectedIds.has(q.chunkId)),
     );
     const positives = cases.filter((c) => c.expectedChunkIds.length).length;
     const negatives = cases.length - positives;
@@ -540,10 +606,10 @@ export async function latestEvaluations(tx: DbTx, s: Scope) {
     if (r.status === "review" && Array.isArray(r.cases)) {
       const ids = [
         ...new Set(
-          (r.cases as EvaluationCase[]).flatMap((c) => [
-            ...c.expectedChunkIds,
-            ...c.forbiddenChunkIds,
-          ]),
+          (r.cases as EvaluationCase[]).flatMap((c) => {
+            const id = c.expectedChunkIds[0] ?? c.forbiddenChunkIds[0];
+            return id ? [id] : [];
+          }),
         ),
       ];
       const chunks = await tx.knowledgeChunk.findMany({
