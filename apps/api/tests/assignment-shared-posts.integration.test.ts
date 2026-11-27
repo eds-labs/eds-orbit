@@ -308,6 +308,24 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
       paragraphs: true,
       cta: OFFICIAL_URL,
     };
+    const fullFact =
+      "The Free tier includes shared planning. " +
+      "This is additional context about the verified product. ".repeat(5) +
+      "Premium trials are a separate offer.";
+    await h.run((tx) =>
+      create(tx, project.owner, "facts", {
+        key: "beta.long_fact",
+        value: fullFact,
+        valueType: "text",
+        status: "verified",
+        sourceId: project.sourceId,
+        sourceGeneration: 1,
+        language: "en",
+        modelUse: true,
+        publicUse: true,
+        validFrom: "2026-01-01T00:00:00.000Z",
+      }),
+    );
     await shared({ image: true, format });
     await h.run((tx) =>
       planAssignmentRuns(tx, project.owner, tomorrowMorning()),
@@ -359,6 +377,14 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     });
     expect(provider.requests[0].instructions).toContain("sharedChannels");
     expect(provider.requests[0].instructions).toContain("assignment.format");
+    expect(input.primaryCtas).toEqual(["Learn more."]);
+    expect(input.facts).toContainEqual({
+      key: "beta.long_fact",
+      value: fullFact,
+    });
+    expect(provider.requests[0].instructions).toContain(
+      "entire verified value",
+    );
     expect(strategy.output.briefs).toHaveLength(2);
     expect(strategy.output.briefs.map((b: any) => b.channel)).toEqual([
       TELEGRAM,
@@ -374,6 +400,43 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
         .filter((t) => t.role === "copywriter")
         .map((t) => t.stepKey),
     ).toEqual(["copywriter"]);
+  });
+
+  it("uses only the approved campaign CTA in draft generation", async () => {
+    const websiteCta = "Explore the product website.";
+    await h.run(async (tx) => {
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: { ...data(profile), primaryCtas: ["Learn more.", websiteCta] },
+        },
+      });
+    });
+    await shared({
+      approvalMode: "human_each",
+      format: {
+        minChars: 40,
+        maxChars: 900,
+        hashtags: { min: 0, max: 3 },
+        paragraphs: false,
+        cta: OFFICIAL_URL,
+      },
+    });
+    await drafted((index) => ({
+      cta: index === 0 ? websiteCta : "Follow a different link.",
+    }));
+    const generated = contracts();
+    expect(generated).toHaveLength(2);
+    expect(
+      generated.map((contract) => contract.campaign.intendedPrimaryCta).sort(),
+    ).toEqual(["Learn more.", websiteCta].sort());
+    for (const contract of generated) {
+      expect(contract.campaign.officialTargetUrl).toBe(OFFICIAL_URL);
+      expect(contract.brief).not.toHaveProperty("cta");
+    }
   });
 
   it("writes one text per slot, reviews it once and books it as identical Postiz drafts on every channel", async () => {

@@ -138,7 +138,6 @@ type GenerationContract = {
   brief?: {
     topic: string;
     angle: string;
-    cta: string;
     notARepeatBecause: string;
   };
   // Present only for an assignment with a format (R77): length, hashtags, paragraphs and link of the post.
@@ -588,7 +587,6 @@ async function generateMissionDraft(
               brief: {
                 topic: String(m.brief.topic),
                 angle: String(m.brief.angle),
-                cta: String(m.brief.cta),
                 notARepeatBecause: String(m.brief.notARepeatBecause),
               },
             }

@@ -9,6 +9,8 @@ import { agentKnowledgeSearch } from "../../tools/agent-tools.ts";
 import { channelTools } from "../../tools/channel-tools.ts";
 import { syncChannelPosts } from "../channel-posts.ts";
 import { listUsableFacts } from "../content-packages.ts";
+import { currentMarketingProfile } from "../../brand/marketing-profile.ts";
+import { marketingProfile } from "../../../../../../../packages/schemas/src/index.ts";
 import { sharedBriefSlots } from "../shared-posts.ts";
 import { data } from "../../../../shared.ts";
 import { errorCode } from "../../../telemetry.ts";
@@ -22,9 +24,8 @@ import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
 
 // The history and fact base are embedded in the task input; the runner fails a call whose context is larger than its limit.
 export const STRATEGY_HISTORY_DAYS = 14;
-// Offered fact text (keys and values) stops growing once it reaches this size.
+// Bound the total fact text without cutting the value of any offered fact.
 const FACT_BUDGET = 6000;
-const FACT_VALUE = 200;
 const MAX_FACT_KEYS = 8;
 
 export const AGENT_UNKNOWN_FACT = "AGENT_UNKNOWN_FACT";
@@ -123,7 +124,7 @@ function offeredFacts(
   const ranked = rows
     .map((row) => {
       const key = String(data(row).key);
-      const value = String(data(row).value ?? "").slice(0, FACT_VALUE);
+      const value = String(data(row).value ?? "");
       const score = [...terms(`${key} ${value}`)].filter((term) =>
         wanted.has(term),
       ).length;
@@ -133,9 +134,10 @@ function offeredFacts(
   const offered: Array<{ key: string; value: string }> = [];
   let size = 0;
   for (const { key, value } of ranked) {
-    if (size >= FACT_BUDGET) break;
+    const length = key.length + value.length;
+    if (size + length > FACT_BUDGET) continue;
     offered.push({ key, value });
-    size += key.length + value.length;
+    size += length;
   }
   return offered;
 }
@@ -202,8 +204,14 @@ async function withContext(
       !input.marketingPlan ||
       input.marketingPlan.spec.facts.some((r: any) => r.id === row.id),
   );
+  const profile = await currentMarketingProfile(tx, scope);
+  const profileResult = marketingProfile.safeParse(profile?.data);
+  const primaryCtas = profileResult.success
+    ? profileResult.data.primaryCtas
+    : [];
   const prepared = {
     ...input,
+    primaryCtas,
     ...(briefSlots
       ? {
           run: {
@@ -331,6 +339,8 @@ const BASE_INSTRUCTIONS = [
   "Inputs: the assignment (topicFrame, tone, channels), inputs.analytics (measured numbers, may be null), inputs.research (findings, may be null), channelHistory (posts of the last assignment.historyDays days, 14 when absent, from Orbit and from other tools including posts made by hand in Social, published and scheduled), recentTopics (the topic, angle and pillar of every recent brief, newest first) and facts (the usable Verified Facts most relevant to the assignment, key and value; other usable facts exist and knowledge_search can show them).",
   "A brief has: topic (what the post is about), angle (how to approach it for this channel and tone), factKeys (one to eight keys from facts that carry every concrete statement of the post; copy them exactly), cta (a call to action), imageIdea (a short picture idea if the assignment has an image, else null) and notARepeatBecause (one sentence naming how it differs from the posts in channelHistory, including scheduled ones and posts from other tools).",
   "Research findings are unverified leads: they may inspire topic and angle but never become claims. Only the facts named in factKeys may be stated as fact; use no figure, name, date or URL that is not in a fact you have seen. Analytics numbers may justify what to emphasize, never an invented claim. If a slot has no suitable fact, leave the slot out.",
+  "For each text fact the copywriter can use only its entire verified value verbatim. Select a fact only when the whole value fits the topic and angle, including every claim and qualification. If part of a fact is out of scope, choose a narrower verified fact or another supported angle; never ask the copywriter to extract one claim from a broader fact.",
+  "When there is no marketingPlan, use the exact wording of a primaryCtas entry that fits the post's official destination. Use the first entry if no other entry applies. Do not compose a new CTA or append a URL to its wording. The format CTA, when present, specifies the destination, not the wording.",
   "No topic and angle pair in recentTopics may be reused on its channel, and consecutive posts should change pillar where the plan allows.",
   "Do not repeat a topic or angle of channelHistory on the same channel. Use channel_history for older posts and knowledge_search only to understand a fact, never to add new claims.",
   "If a slot lists sharedChannels, its one post goes out unchanged on every one of those channels: write one brief for it that suits all of them and avoids every one of their recent posts.",

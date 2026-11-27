@@ -218,6 +218,11 @@ async function briefMission(
       facts.some((f) => !plan.facts.some((r: any) => r.id === f.id)))
   )
     throw new DomainError("PLAN_BRIEF_OUTSIDE_ENVELOPE", 409);
+  const targetAction =
+    plan?.cta.label ??
+    (profile.primaryCtas.includes(brief.cta)
+      ? brief.cta
+      : profile.primaryCtas[0]);
   const slot = Date.parse(brief.slotAt);
   if (!Number.isFinite(slot) || slot <= now.valueOf())
     throw new DomainError("SLOT_PASSED", 409);
@@ -243,8 +248,7 @@ async function briefMission(
       language: profile.contentLanguage,
       channels: [brief.channel],
       maxContents: 1,
-      // The CTA stays the profile's approved one; the brief's cta only steers the text.
-      targetAction: plan?.cta.label ?? profile.primaryCtas[0],
+      targetAction,
       targetUrl: link.url,
       sourceIds: [...new Set(facts.map((fact) => data(fact).sourceId))],
       assetIds: [],
@@ -287,7 +291,7 @@ async function briefMission(
     brief: {
       topic: brief.topic,
       angle: brief.angle,
-      cta: brief.cta,
+      cta: targetAction,
       notARepeatBecause: brief.notARepeatBecause,
     },
     agentTaskId: task.id,
