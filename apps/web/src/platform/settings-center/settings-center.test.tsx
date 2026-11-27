@@ -124,7 +124,8 @@ describe("SettingsCenterView", () => {
   it("shows the overview for a scope without an area", () => {
     const html = render({});
     expect(html.match(/class="panel manage-card"/g)).toHaveLength(4);
-    expect(html).toContain("Choose an area. Each one says what it is for.");
+    expect(html).toContain('class="manage-card-title"');
+    expect(html).toContain('aria-controls="manage-search-results"');
     expect(html).toContain('href="/manage/system/users/invitations"');
     expect(html).not.toContain("marker-");
     expect(html).not.toContain('aria-current="page"');
@@ -186,7 +187,7 @@ describe("SettingsCenterView", () => {
     const onOverview = content(render({}, caps.system, notice));
     expect(onOverview.indexOf("notice-marker")).toBeGreaterThan(-1);
     expect(onOverview.indexOf("notice-marker")).toBeLessThan(
-      onOverview.indexOf("manage-hint"),
+      onOverview.indexOf("manage-cards"),
     );
     expect(render({ area: "users" })).not.toContain("notice-marker");
   });

@@ -1,7 +1,7 @@
 <?php
 
 $labels = [];
-$labels['convert'] = 'Convert to support ticket';
+$labels['convert'] = 'Support ticket';
 $labels['converttitle'] = 'Create or extend a support ticket from this message';
 $labels['conversionfailed'] = 'This message could not be prepared for conversion.';
 

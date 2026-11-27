@@ -107,7 +107,7 @@ export function MonthGrid({
     cells.slice(i * 7, i * 7 + 7),
   );
   return (
-    <div className="cal-month-scroll">
+    <div className="cal-month-scroll" role="region" aria-label={label} tabIndex={0}>
       <table role="grid" className="cal-month" aria-label={label}>
         <thead>
           <tr>

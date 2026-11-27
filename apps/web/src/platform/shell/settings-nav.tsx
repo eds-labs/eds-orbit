@@ -1,5 +1,6 @@
 "use client";
 import type { MouseEvent } from "react";
+import type { LucideIcon } from "lucide-react";
 import { labels, type Locale } from "@/lib/i18n";
 import type { Label, SettingsSection } from "./types";
 
@@ -16,7 +17,12 @@ export type SettingsTab = {
   /** "project" or a module id. */
   group: string;
 };
-export type SettingsGroup = { id: string; label: Label; tabs: SettingsTab[] };
+export type SettingsGroup = {
+  id: string;
+  label: Label;
+  tabs: SettingsTab[];
+  icon?: LucideIcon;
+};
 
 const PROJECT = "project";
 
@@ -115,34 +121,42 @@ export function SettingsNav({
   return (
     <>
       <nav className="settings-nav" aria-label={text.settingsSections}>
-        {groups.map((group) => (
-          <div className="settings-nav-group" key={group.id}>
-            <h2
-              className="settings-nav-heading"
-              id={`settings-group-${group.id}`}
-            >
-              {group.label[locale]}
-            </h2>
-            <ul aria-labelledby={`settings-group-${group.id}`}>
-              {group.tabs.map((tab) => (
-                <li key={tab.key}>
-                  <a
-                    className="settings-nav-link"
-                    href={hrefOf(tab.key)}
-                    aria-current={tab.key === value ? "page" : undefined}
-                    onClick={(e) => {
-                      if (!plainClick(e)) return;
-                      e.preventDefault();
-                      onSelect(tab.key);
-                    }}
-                  >
-                    {tab.label[locale]}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        {groups.map((group) => {
+          const Icon = group.icon;
+          const singleLabel =
+            group.tabs.length === 1 &&
+            group.tabs[0]?.label[locale] === group.label[locale];
+          return (
+            <div className="settings-nav-group" key={group.id}>
+              <h2
+                className={singleLabel ? "sr-only" : "settings-nav-heading"}
+                id={`settings-group-${group.id}`}
+              >
+                {!singleLabel && Icon && <Icon aria-hidden="true" />}
+                {group.label[locale]}
+              </h2>
+              <ul aria-labelledby={`settings-group-${group.id}`}>
+                {group.tabs.map((tab) => (
+                  <li key={tab.key}>
+                    <a
+                      className="settings-nav-link"
+                      href={hrefOf(tab.key)}
+                      aria-current={tab.key === value ? "page" : undefined}
+                      onClick={(e) => {
+                        if (!plainClick(e)) return;
+                        e.preventDefault();
+                        onSelect(tab.key);
+                      }}
+                    >
+                      {singleLabel && Icon && <Icon aria-hidden="true" />}
+                      {tab.label[locale]}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
       </nav>
       <div className="settings-select">
         <label htmlFor="settings-section">{text.settingsSection}</label>

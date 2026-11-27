@@ -27,7 +27,7 @@ test.describe('G8 convert button', () => {
     test('list view enables the button for exactly one message and posts to Orbit', async ({ page }) => {
         const frame = await openWebmail(page, { capabilities: FULL_ACCESS });
         await waitForMailList(frame);
-        await expect(frame.locator(BUTTON)).toContainText('Convert to support ticket');
+        await expect(frame.locator(BUTTON)).toContainText('Support ticket');
         expect(await commandEnabled(frame)).toBe(false);
 
         await selectRows(frame, 2);
@@ -59,7 +59,7 @@ test.describe('G8 convert button', () => {
 
         await frame.goto(`${WEBMAIL_ORIGIN}/?_task=mail&_mbox=INBOX&_uid=${uid}&_action=show`);
         await waitForRoundcube(frame);
-        await expect(frame.locator(BUTTON)).toContainText('Convert to support ticket');
+        await expect(frame.locator(BUTTON)).toContainText('Support ticket');
         expect(await commandEnabled(frame)).toBe(true);
 
         await frame.locator(BUTTON).click();
@@ -146,7 +146,7 @@ test.describe('G8 convert button', () => {
         const page = await context.newPage();
         const frame = await openWebmail(page, { mailbox: 'm2', capabilities: FULL_ACCESS });
 
-        await expect(frame.locator(BUTTON)).toContainText('Als Supportticket übernehmen');
+        await expect(frame.locator(BUTTON)).toContainText('Supportticket');
         await context.close();
     });
 });

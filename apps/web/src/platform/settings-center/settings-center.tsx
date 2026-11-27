@@ -7,6 +7,7 @@ import { labels, type Locale } from "@/lib/i18n";
 import { Empty, Field, FieldLabel, Input } from "@/components/ui/primitives";
 import { PageHead, PageHeadLevel } from "@/platform/ui/collection";
 import { SettingsNav, type SettingsGroup } from "@/platform/shell/settings-nav";
+import { settingsGroupIcon } from "@/platform/shell/navigation-icons";
 import type { Label } from "@/platform/shell/types";
 import {
   navGroups,
@@ -97,6 +98,7 @@ export function SettingsCenterView({
   const navList: SettingsGroup[] = groups.map((group) => ({
     id: group.id,
     label: group.label,
+    icon: settingsGroupIcon(group.id),
     tabs: group.sections.map((section) => ({
       key: keyOf(section),
       label: section.label,
@@ -112,22 +114,6 @@ export function SettingsCenterView({
   const hits = searchSections(sections, query);
 
   const content = () => {
-    if (query !== "") {
-      return hits.length === 0 ? (
-        <Empty title={t("searchEmpty")} />
-      ) : (
-        <ul className="manage-hits">
-          {hits.map((section) => (
-            <li key={keyOf(section)}>
-              <Link href={hrefOf(keyOf(section))} onClick={endSearch}>
-                <strong>{section.label[locale]}</strong>
-                <span>{section.description[locale]}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      );
-    }
     if (resolved) {
       const { section, id } = resolved;
       const body = section.render({
@@ -168,29 +154,36 @@ export function SettingsCenterView({
       return groups.length === 0 ? (
         <Empty title={t("notPermittedTitle")} />
       ) : (
-        <>
-          <p className="manage-hint">{t("overviewHint")}</p>
-          <div className="manage-cards">
-            {groups.map((group) => (
+        <div className="manage-cards">
+          {groups.map((group) => {
+            const Icon = settingsGroupIcon(group.id);
+            const single = group.sections.length === 1 ? group.sections[0] : undefined;
+            const linkHeading = single?.label[locale] === group.label[locale];
+            return (
               <section className="panel manage-card" key={group.id}>
-                <h2>
-                  <Link href={hrefOf(keyOf(group.sections[0]))} onClick={endSearch}>
-                    {group.label[locale]}
-                  </Link>
+                <h2 className="manage-card-title">
+                  <Icon aria-hidden="true" />
+                  {single && linkHeading ? (
+                    <Link href={hrefOf(keyOf(single))} onClick={endSearch}>
+                      {group.label[locale]}
+                    </Link>
+                  ) : group.label[locale]}
                 </h2>
-                <ul>
-                  {group.sections.map((section) => (
-                    <li key={keyOf(section)}>
-                      <Link href={hrefOf(keyOf(section))} onClick={endSearch}>
-                        {section.label[locale]}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                {!linkHeading && (
+                  <ul>
+                    {group.sections.map((section) => (
+                      <li key={keyOf(section)}>
+                        <Link href={hrefOf(keyOf(section))} onClick={endSearch}>
+                          {section.label[locale]}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
-            ))}
-          </div>
-        </>
+            );
+          })}
+        </div>
       );
     }
     return (
@@ -216,19 +209,41 @@ export function SettingsCenterView({
           locale={locale}
           onSelect={go}
         />
-        <Field>
-          <FieldLabel htmlFor="manage-search">{t("searchLabel")}</FieldLabel>
-          <div className="search-field">
-            <Search aria-hidden="true" />
-            <Input
-              id="manage-search"
-              type="search"
-              // The raw text, so typing a leading space is not swallowed.
-              value={search.at === at ? search.query : ""}
-              onChange={(e) => setSearch({ query: e.target.value, at })}
-            />
+        <div className="manage-search">
+          <Field>
+            <FieldLabel htmlFor="manage-search">{t("searchLabel")}</FieldLabel>
+            <div className="search-field">
+              <Search aria-hidden="true" />
+              <Input
+                id="manage-search"
+                type="search"
+                aria-controls="manage-search-results"
+                value={search.at === at ? search.query : ""}
+                onChange={(e) => setSearch({ query: e.target.value, at })}
+              />
+            </div>
+          </Field>
+          <div id="manage-search-results">
+            <p className={query && !hits.length ? "field-hint" : "sr-only"} role="status">
+              {query && (hits.length
+                ? t(hits.length === 1 ? "searchOneMatch" : "searchMatches")
+                    .replace("{count}", String(hits.length))
+                : t("searchEmpty"))}
+            </p>
+            {!!hits.length && (
+              <ul className="manage-hits">
+                {hits.map((section) => (
+                  <li key={keyOf(section)}>
+                    <Link href={hrefOf(keyOf(section))} onClick={endSearch}>
+                      <strong>{section.label[locale]}</strong>
+                      <span>{section.description[locale]}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-        </Field>
+        </div>
       </div>
       <div className="admin-layout">
         <SettingsNav
@@ -241,7 +256,7 @@ export function SettingsCenterView({
         />
         <div className="settings-content">
           {notices}
-          {content()}
+          {!query && content()}
         </div>
       </div>
     </>

@@ -119,6 +119,8 @@ test.describe("settings center", () => {
       await expect(h1(page)).toHaveText(heading);
       // The bare scope address shows the card overview.
       await expect(page.locator(".manage-cards")).toBeVisible();
+      await expect(page.locator(".manage-card-title svg").first()).toBeVisible();
+      await expect(sectionNav(page).locator("svg").first()).toBeVisible();
     };
     await visit("Whole system", /\/manage\/system$/, "Whole system");
     await visit("My account", /\/manage\/me$/, "My account");
@@ -165,7 +167,9 @@ test.describe("settings center", () => {
       name: /Audit log/,
     });
     await expect(hit).toBeVisible();
-    await hit.click();
+    await page.getByLabel("Search settings").press("Tab");
+    await expect(hit).toBeFocused();
+    await hit.press("Enter");
     await expect(page).toHaveURL(/\/manage\/system\/security\/audit$/);
     await expect(
       sectionNav(page).getByRole("link", { name: "Audit log" }),

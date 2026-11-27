@@ -36,10 +36,10 @@ export const adsWeb: WebModule = {
   groupOrder: 13,
   views: [
     { key: "ads", path: "", component: AdsOverview, nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 } },
-    { key: "ads.campaigns", path: "campaigns", component: AdsPlaceholder, nav: { label: nav("campaigns"), icon: Megaphone, order: 10 } },
-    { key: "ads.units", path: "units", component: AdsPlaceholder, nav: { label: nav("units"), icon: LayoutGrid, order: 20 } },
-    { key: "ads.creatives", path: "creatives", component: AdsPlaceholder, nav: { label: nav("creatives"), icon: Images, order: 30 } },
-    { key: "ads.performance", path: "performance", component: AdsPlaceholder, nav: { label: nav("performance"), icon: BarChart3, order: 40 } },
+    { key: "ads.campaigns", path: "campaigns", component: () => <AdsPlaceholder section="campaigns" />, nav: { label: nav("campaigns"), icon: Megaphone, order: 10, planned: true } },
+    { key: "ads.units", path: "units", component: () => <AdsPlaceholder section="units" />, nav: { label: nav("units"), icon: LayoutGrid, order: 20, planned: true } },
+    { key: "ads.creatives", path: "creatives", component: () => <AdsPlaceholder section="creatives" />, nav: { label: nav("creatives"), icon: Images, order: 30, planned: true } },
+    { key: "ads.performance", path: "performance", component: () => <AdsPlaceholder section="performance" />, nav: { label: nav("performance"), icon: BarChart3, order: 40, planned: true } },
     { key: "ads.accounts", path: "accounts", component: AdsAccounts, nav: { label: nav("accounts"), icon: Link2, order: 50 } },
   ],
 };

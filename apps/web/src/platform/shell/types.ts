@@ -39,6 +39,8 @@ export type NavEntry = {
     path(projectId: string): string;
     label(total: number, complete: boolean, locale: Locale): string;
   };
+  /** The linked page describes a planned feature. */
+  planned?: true;
   /** Position in the sidebar, shared by the platform and all modules. */
   order: number;
   /** Shown in the mobile bottom bar, optionally with a shorter label. */

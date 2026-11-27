@@ -1,7 +1,7 @@
 <?php
 
 $labels = [];
-$labels['convert'] = 'Als Supportticket übernehmen';
+$labels['convert'] = 'Supportticket';
 $labels['converttitle'] = 'Aus dieser Nachricht ein Supportticket erstellen oder ergänzen';
 $labels['conversionfailed'] = 'Diese Nachricht konnte nicht für die Übernahme vorbereitet werden.';
 

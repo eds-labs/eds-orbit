@@ -128,7 +128,7 @@ export function TaskListView() {
                   </option>
                 ))}
             </select>
-            <select aria-label={t.fields.initiative} value={filters.initiative} onChange={(e) => set("initiative")(e.target.value)}>
+            <select className="input work-initiative-filter" aria-label={t.fields.initiative} value={filters.initiative} onChange={(e) => set("initiative")(e.target.value)}>
               <option value="">{t.any}</option>
               <option value="none">{t.noInitiative}</option>
               {(initiatives.data?.items ?? []).map((i) => (

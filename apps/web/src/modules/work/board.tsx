@@ -209,7 +209,7 @@ export function BoardView() {
   return (
     <div className="support-page work-board-page">
       <PageHead title={t.nav.board} description={t.dragHint}>
-        <select aria-label={t.fields.initiative} value={initiative} onChange={(e) => setInitiative(e.target.value)}>
+        <select className="input work-initiative-filter" aria-label={t.fields.initiative} value={initiative} onChange={(e) => setInitiative(e.target.value)}>
           <option value="">{t.any}</option>
           <option value="none">{t.noInitiative}</option>
           {(initiatives.data?.items ?? []).map((i) => (

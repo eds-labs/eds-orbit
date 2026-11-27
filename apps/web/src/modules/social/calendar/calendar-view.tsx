@@ -282,6 +282,9 @@ export function CalendarView() {
       {shown && !items.length && state.view !== "list" && (
         <p className="field-hint">{t.empty}</p>
       )}
+      {shown && state.view !== "list" && (
+        <p className="field-hint cal-scroll-hint">{t.scrollHint}</p>
+      )}
       <CalendarDnd
         locale={locale}
         onDrop={(item, target) => void drop(item, target)}

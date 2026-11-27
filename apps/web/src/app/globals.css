@@ -345,9 +345,16 @@ pre {
 .nav-entry-label {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.nav-planned {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #e7eef5;
+  color: #41566d;
+  font-size: 10px;
 }
 .nav-group-head .nav-group-chevron {
   width: 16px;
@@ -717,7 +724,20 @@ pre {
   grid-template-columns: repeat(4, 1fr);
 }
 .metrics-strip.metrics-five {
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.metrics-five .metric {
+  align-items: flex-start;
+  gap: 12px;
+  padding-inline: 14px;
+}
+.metrics-five .metric-label {
+  min-block-size: 2.8em;
+}
+@media (max-width: 1120px) {
+  .metrics-strip.metrics-five {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 .metrics-four .metric > div,
 .metrics-five .metric > div {
@@ -730,7 +750,7 @@ pre {
 }
 @media (max-width: 760px) {
   .metrics-strip.metrics-five {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .metrics-four .metric:nth-child(even),
   .metrics-five .metric:nth-child(even) {
@@ -1311,6 +1331,10 @@ pre {
   justify-content: center;
   flex-direction: column;
   gap: 12px;
+}
+.cms-entries-empty > .empty {
+  min-height: 0;
+  padding-block: 24px;
 }
 .empty-icon {
   display: grid;
@@ -2360,6 +2384,9 @@ select.input {
   gap: 16px;
 }
 .settings-nav-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 4px;
   padding: 0 10px;
   font-size: 11px;
@@ -2376,14 +2403,24 @@ select.input {
   padding: 0;
   list-style: none;
 }
+.settings-nav-heading svg,
+.settings-nav-link svg {
+  width: 16px;
+  height: 16px;
+}
 .settings-nav-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
   color: #2c3e52;
   font-size: 13.5px;
   font-weight: 500;
   transition: background 0.16s;
+}
+.admin-layout .settings-nav-group:has(.settings-nav-heading) .settings-nav-link {
+  padding-inline-start: 34px;
 }
 .settings-nav-link:hover {
   background: #dfefff80;
@@ -3241,6 +3278,12 @@ select.input {
   .metric:last-child {
     border: 0;
   }
+  :is(.metrics-four, .metrics-five) .metric {
+    align-items: flex-start;
+  }
+  .metrics-four .metric-label {
+    min-block-size: 2.8em;
+  }
   .metric-label {
     font-size: 11px;
     line-height: 1.4;
@@ -3900,7 +3943,11 @@ body:has(dialog[open]) {
 @media (max-width: 760px) {
   .mobile-brand {
     display: block;
+    min-width: 0;
     flex: 1;
+  }
+  .topbar-actions {
+    flex-shrink: 0;
   }
   .topbar .mobile-brand .brand {
     display: flex;
@@ -3923,6 +3970,11 @@ body:has(dialog[open]) {
   }
   .topbar-actions .avatar {
     display: none;
+  }
+  .topbar .mobile-brand .brand span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .mobile-project {
     display: flex;
@@ -3951,6 +4003,12 @@ body:has(dialog[open]) {
     width: 100%;
   }
 }
+@media (max-width: 350px) {
+  .topbar .mobile-brand .brand span {
+    display: none;
+  }
+}
+
 
 .mode-mobile-copy {
   display: none;
@@ -6029,7 +6087,7 @@ svg.agent-graph {
 }
 .attention-row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 140px) minmax(0, 1fr) auto auto;
   grid-template-areas: "chip text when action";
   align-items: center;
   gap: 10px 14px;
@@ -6043,9 +6101,7 @@ svg.agent-graph {
   grid-area: chip;
   justify-self: start;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   padding: 3px 8px;
   border-radius: 6px;
   background: #edf3f8;
@@ -6445,6 +6501,9 @@ svg.agent-graph {
       "text text"
       "action action";
     padding: 12px 14px;
+  }
+  body:has(.assistant-bubble[data-above-nav]) .attention-when {
+    margin-inline-end: 52px;
   }
   .attention-action {
     justify-self: start;
@@ -7418,6 +7477,18 @@ a.support-row {
     flex-direction: column;
     gap: 16px;
   }
+  .knowledge-heading h1 {
+    font-size: 29px;
+  }
+  .knowledge-source {
+    align-items: stretch;
+  }
+  .knowledge-source-body {
+    flex: 0 1 auto;
+  }
+  .knowledge-source-actions {
+    justify-content: flex-start;
+  }
   .knowledge-choice small,
   .knowledge-way small {
     font-size: 14px;
@@ -7755,24 +7826,31 @@ a.support-row {
    scope switcher and the search share one row above the section list. */
 .manage-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 320px) minmax(0, 470px);
-  gap: 16px;
-  align-items: end;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
   margin-bottom: 24px;
 }
-.manage-hint {
-  color: var(--muted-foreground);
+.manage-search {
+  min-width: 0;
+}
+#manage-search-results > .field-hint {
+  margin-top: 8px;
 }
 .manage-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
-  gap: 20px;
-  align-items: start;
+  gap: 16px;
 }
-.manage-card {
-  padding: 18px 21px;
+.panel.manage-card {
+  padding: 20px;
 }
-.manage-card h2 {
+.manage-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  overflow-wrap: anywhere;
   font-size: 16px;
   line-height: 1.3;
 }
@@ -7784,6 +7862,12 @@ a.support-row {
   margin: 10px 0 0;
   padding: 0;
   list-style: none;
+}
+.panel.manage-card > ul {
+  margin-inline: 30px 0;
+}
+.manage-card-title svg {
+  color: #577493;
 }
 .manage-card li a {
   display: inline-block;
@@ -7811,6 +7895,7 @@ a.support-row {
 @media (max-width: 760px) {
   .manage-toolbar {
     grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
   }
   /* 16px stops iOS from zooming into the fields on focus. */
   .manage-toolbar .input {
@@ -8468,6 +8553,11 @@ label:is(.support-check, .settings-check) {
   align-items: center;
   gap: 4px;
 }
+.work-initiative-filter {
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  width: auto;
+}
 .work-card-move select {
   flex: 1;
   min-width: 0;
@@ -8543,8 +8633,12 @@ label:is(.support-check, .settings-check) {
 @media (max-width: 760px) {
   .work-board {
     grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
     grid-auto-columns: auto;
     overflow-x: visible;
+  }
+  .work-initiative-filter {
+    width: 100%;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -8859,15 +8953,29 @@ label:is(.support-check, .settings-check) {
   outline: 2px dashed var(--ring);
   outline-offset: -2px;
 }
-@media (max-width: 720px) {
-  .cal-month,
-  .cal-week {
-    min-width: 640px;
+.social-calendar {
+  container-type: inline-size;
+}
+.cal-month,
+.cal-week {
+  min-inline-size: 760px;
+}
+.cal-scroll-hint {
+  display: none;
+}
+@container (width < 760px) {
+  .cal-scroll-hint {
+    display: block;
   }
 }
-.cal-month-scroll {
-  max-width: 100%;
+.cal-month-scroll,
+.cal-week-scroll {
+  max-inline-size: 100%;
   overflow-x: auto;
+}
+:is(.cal-month-scroll, .cal-week-scroll):focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
 }
 /* Agents (ADR 0021, WP1.8): overview, builder, executions. */
 .agents-stack {

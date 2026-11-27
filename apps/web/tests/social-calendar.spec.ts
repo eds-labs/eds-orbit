@@ -174,3 +174,24 @@ test("a move into the hour the clocks skip offers the next valid time", async ({
   const moved = await api<{ version: number }>(page.request, origin, "GET", `/projects/${user.projectId}/social/posts/${draft.id}`);
   await api(page.request, origin, "POST", `/projects/${user.projectId}/social/posts/${draft.id}/archive`, { version: moved.version });
 });
+
+
+test("the narrow calendar scrolls within the content area and offers list view", async ({ page }) => {
+  const user = owner();
+  await signIn(page, user);
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto(`/p/${user.projectId}/social/calendar?view=month`);
+  const grid = page.getByRole("grid");
+  await expect(grid).toBeVisible();
+  await expect(page.getByText("Scroll to see the remaining days, or switch to List.")).toBeVisible();
+  const scroller = page.locator(".cal-month-scroll");
+  expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )).toBe(0);
+  await scroller.focus();
+  await expect(scroller).toBeFocused();
+  await page.getByRole("tab", { name: "List" }).click();
+  await expect(page).toHaveURL(/view=list/);
+  await expect(grid).toHaveCount(0);
+});

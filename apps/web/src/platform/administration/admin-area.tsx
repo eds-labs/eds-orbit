@@ -119,7 +119,7 @@ export function Overview({ locale }: { locale: Locale }) {
   return (
     <>
       <PageHead
-        title={de ? "Administration" : "Administration"}
+        title={de ? "Systemstatus" : "System status"}
         description={
           de
             ? "Benutzer, Organisationen und Projekte dieser Orbit-Installation. Projektinhalte sind hier nicht sichtbar."
@@ -165,7 +165,7 @@ export function Overview({ locale }: { locale: Locale }) {
             <section className="panel">
               <div className="panel-head">
                 <div>
-                  <h2>{de ? "Systemstatus" : "System status"}</h2>
+                  <h3>{de ? "Dienste" : "Services"}</h3>
                   <p>
                     {de
                       ? "Zustände ohne Details; Geheimnisse werden nie angezeigt."

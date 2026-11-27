@@ -42,6 +42,8 @@ async function signIn(page: Page) {
 let projectId = "";
 let origin = "";
 const run = Date.now().toString(36);
+const longInitiative =
+  "Coordinate the regional launch, accessibility review and subscription migration across every supported platform";
 
 async function api<T = unknown>(request: APIRequestContext, method: "GET" | "POST", path: string, data?: unknown): Promise<T> {
   const response = await request.fetch(`/api${path}`, {
@@ -70,6 +72,9 @@ test.beforeAll(async ({ browser, baseURL }) => {
     await page.goto(`/manage/p/${projectId}/modules`);
     await page.getByRole("button", { name: "Turn on: Project management" }).click();
     await expect(page.getByRole("button", { name: "Turn off: Project management" })).toBeVisible();
+    await api(page.request, "POST", `/projects/${projectId}/work/initiatives`, {
+      title: longInitiative,
+    });
   } finally {
     await context.close();
   }
@@ -127,4 +132,27 @@ test("the overview shows the figures and links to the board", async ({ page }) =
   await expect(main.getByText("Open tasks")).toBeVisible();
   await main.getByRole("link", { name: "Board", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/p/${projectId}/work/board`));
+});
+
+
+test("long initiative names keep board and tasks within the phone viewport", async ({ page }) => {
+  await signIn(page);
+  await api(page.request, "POST", `/projects/${projectId}/work/tasks`, {
+    title: "Check the board layout on a phone",
+  });
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const view of ["board", "tasks"]) {
+      await page.goto(`/p/${projectId}/work/${view}`);
+      const filter = page.getByRole("combobox", { name: "Initiative", exact: true });
+      await expect(filter.locator("option").filter({ hasText: longInitiative })).toHaveCount(1);
+      if (view === "board") await expect(page.getByLabel("Move to").first()).toBeVisible();
+      await expect.poll(() => page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ), { message: `${view} at ${width}px stays within the document width` }).toBe(0);
+      const bounds = await filter.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    }
+  }
 });

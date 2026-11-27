@@ -58,7 +58,7 @@ export function WeekGrid({
   const t = socialText(locale).calendar;
   const { rows, slots } = weekRows(days, timeZone);
   return (
-    <div className="cal-week-scroll">
+    <div className="cal-week-scroll" role="region" aria-label={label} tabIndex={0}>
       <table className="cal-week" aria-label={label}>
         <thead>
           <tr>

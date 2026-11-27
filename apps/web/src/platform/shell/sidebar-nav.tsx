@@ -1,7 +1,8 @@
 "use client";
 import { Fragment } from "react";
 import Link from "next/link";
-import { ChevronDown, Settings } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { workspaceGroupIcon } from "./navigation-icons";
 import { labels, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { groupBadge } from "./nav-collapse";
@@ -108,6 +109,9 @@ export function SidebarNav({
       >
         {withIcon && <Icon aria-hidden="true" />}
         <span className="nav-entry-label">{route.nav!.label[locale]}</span>
+        {route.nav!.planned && (
+          <span className="nav-planned">{locale === "de" ? "Geplant" : "Planned"}</span>
+        )}
         {badge(badges[route.key] ?? 0, urgent.has(route.key))}
         {withIcon && routeCount(route)}
       </Link>
@@ -124,8 +128,7 @@ export function SidebarNav({
           );
         const open = !collapsed.has(group.id);
         const listId = `nav-group-${group.id}`;
-        const Icon =
-          group.id === "project" ? Settings : group.entries[0]!.nav!.icon;
+        const Icon = workspaceGroupIcon(group.id, group.entries[0]!.nav!.icon);
         return (
           <Fragment key={group.id}>
             {group.id === firstModule && (

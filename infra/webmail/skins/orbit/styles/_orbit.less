@@ -79,14 +79,9 @@ html.dark-mode .header-title.username .orbit-mailbox-address {
     color: @color-dark-hint;
 }
 
-a.button.orbit-convert {
-    // Elastic limits toolbar labels to one short word.
-    max-width: none !important;
-
-    &:before {
-        &:extend(.font-icon-class);
-        content: @fa-var-ticket-alt;
-    }
+a.button.orbit-convert:before {
+    &:extend(.font-icon-class);
+    content: @fa-var-ticket-alt;
 }
 
 // Phones: 16 px fields prevent the iOS focus zoom, modals use the smaller radius

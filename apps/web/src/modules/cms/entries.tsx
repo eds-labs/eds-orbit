@@ -259,7 +259,9 @@ function EntryListView() {
             </table>
           </div>
         ) : (
-          <Empty title={filtered ? t.entries.empty : t.entries.emptyAll} />
+          <div className="cms-entries-empty">
+            <Empty title={filtered ? t.entries.empty : t.entries.emptyAll} />
+          </div>
         ))}
       {list.data?.nextCursor && (
         <Button
