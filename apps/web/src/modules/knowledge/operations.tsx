@@ -57,133 +57,135 @@ export function KnowledgeOperations({
     ],
   ] as const;
   if (!settings && !ops.monitoring) return null;
+  const title = de ? "Wissensbetrieb" : "Knowledge operations";
   return (
-    <section
-      className="panel stack-gap"
-      aria-label={de ? "Wissensbetrieb" : "Knowledge operations"}
-    >
-      <h2>{de ? "Wissensbetrieb" : "Knowledge operations"}</h2>
-      {state && ops.status && (
-        <div role="status">
-          <Badge
-            tone={
-              state === "current"
-                ? "success"
-                : state === "action_required"
-                  ? "danger"
-                  : "neutral"
-            }
-          >
-            {states[state]}
-          </Badge>
-          {ops.status.lastSuccessAt && (
-            <p>
-              {de ? "Letzte erfolgreiche Prüfung" : "Last successful check"} ·{" "}
-              {when(ops.status.lastSuccessAt, locale)}
-            </p>
-          )}
-          {ops.status.nextAttemptAt && state === "waiting" && (
-            <p>
-              {de ? "Nächster Versuch" : "Next attempt"} ·{" "}
-              {when(ops.status.nextAttemptAt, locale)}
-            </p>
-          )}
-          {ops.status.stage && (
-            <p>
-              {
-                (
-                  {
-                    embedding: de
-                      ? "Wissensabschnitte werden verarbeitet."
-                      : "Processing knowledge passages.",
-                    questions: de
-                      ? "Testfragen werden vorbereitet."
-                      : "Preparing test questions.",
-                    evaluation: de
-                      ? "Der Suchindex wird geprüft."
-                      : "Checking the search index.",
-                  } as Record<string, string>
-                )[ops.status.stage]
-              }
-            </p>
-          )}
-          {ops.status.marketingBlocked && (
-            <p>
-              {de
-                ? "Neue Marketing-Freigaben warten auf eine gültige Indexprüfung."
-                : "New marketing approvals need a valid index check."}
-            </p>
-          )}
-        </div>
-      )}
-      {ops.issues.map((issue) => (
-        <div key={issue.id}>
-          <Alert kind="warning">{de ? issue.label.de : issue.label.en}</Alert>
-          <p>
-            Telegram ·{" "}
-            {(
-              {
-                pending: de ? "wartet" : "pending",
-                sent: de ? "zugestellt" : "delivered",
-                failed: de ? "fehlgeschlagen" : "failed",
-                unknown: de ? "Zustellung unklar" : "delivery uncertain",
-                skipped: de ? "übersprungen" : "skipped",
-                unavailable: de ? "nicht verbunden" : "unavailable",
-              } as Record<string, string>
-            )[issue.telegram] ?? issue.telegram}
-          </p>
-          <AppLink className="text-link" href={issue.href}>
-            {de ? "Problem prüfen" : "Check issue"}
-          </AppLink>
-        </div>
-      ))}
-      {(ops.pending > 0 || ops.changed > 0) && (
-        <AppLink className="text-link" href={shell.hrefOf("knowledge-review")}>
-          {de
-            ? `${ops.changed} geändert · ${ops.pending} neu`
-            : `${ops.changed} changed · ${ops.pending} new`}
-        </AppLink>
-      )}
-      {!settings && isOwner && (
-        <AppLink
-          className="text-link"
-          href={shell.hrefOf("knowledge-health") + "?expert=1"}
-        >
-          {de ? "Index und Einstellungen ansehen" : "View index and settings"}
-        </AppLink>
-      )}
-      {settings && isOwner && (
-        <fieldset className="stack-gap">
-          <legend>
-            {de ? "Funktionen für dieses Projekt" : "Features for this project"}
-          </legend>
-          <p>
-            {de
-              ? "Telegram nutzt den verknüpften privaten Projektbot. Automatische KI-Nutzung und GitHub-Abrufe erfordern eigene Freigaben."
-              : "Telegram uses the linked private project bot. Automated AI and GitHub reads require their own approval."}
-          </p>
-          {fields.map(([key, label]) => (
-            <Button
-              key={key}
-              variant="outline"
-              aria-pressed={ops[key]}
-              disabled={mutation.pending}
-              onClick={() =>
-                mutation.run(() =>
-                  action(project.id, "knowledge-operations-settings", {
-                    [key]: !ops[key],
-                  }),
-                )
+    <section className="panel knowledge-operations" aria-label={title}>
+      <div className="panel-head">
+        <h2>{title}</h2>
+      </div>
+      <div className="panel-body knowledge-operations-body">
+        {state && ops.status && (
+          <div className="knowledge-operations-status" role="status">
+            <Badge
+              tone={
+                state === "current"
+                  ? "success"
+                  : state === "action_required"
+                    ? "danger"
+                    : "neutral"
               }
             >
-              {label} · {ops[key] ? (de ? "An" : "On") : de ? "Aus" : "Off"}
-            </Button>
-          ))}
-          {mutation.error && (
-            <WorkspaceError code={mutation.error} t={knowledgeCopy[locale]} />
-          )}
-        </fieldset>
-      )}
+              {states[state]}
+            </Badge>
+            {ops.status.lastSuccessAt && (
+              <p>
+                {de ? "Letzte erfolgreiche Prüfung" : "Last successful check"} ·{" "}
+                {when(ops.status.lastSuccessAt, locale)}
+              </p>
+            )}
+            {ops.status.nextAttemptAt && state === "waiting" && (
+              <p>
+                {de ? "Nächster Versuch" : "Next attempt"} ·{" "}
+                {when(ops.status.nextAttemptAt, locale)}
+              </p>
+            )}
+            {ops.status.stage && (
+              <p>
+                {
+                  (
+                    {
+                      embedding: de
+                        ? "Wissensabschnitte werden verarbeitet."
+                        : "Processing knowledge passages.",
+                      questions: de
+                        ? "Testfragen werden vorbereitet."
+                        : "Preparing test questions.",
+                      evaluation: de
+                        ? "Der Suchindex wird geprüft."
+                        : "Checking the search index.",
+                    } as Record<string, string>
+                  )[ops.status.stage]
+                }
+              </p>
+            )}
+            {ops.status.marketingBlocked && (
+              <p>
+                {de
+                  ? "Neue Marketing-Freigaben warten auf eine gültige Indexprüfung."
+                  : "New marketing approvals need a valid index check."}
+              </p>
+            )}
+          </div>
+        )}
+        {ops.issues.map((issue) => (
+          <div className="knowledge-operations-issue" key={issue.id}>
+            <Alert kind="warning">{de ? issue.label.de : issue.label.en}</Alert>
+            <p>
+              Telegram ·{" "}
+              {(
+                {
+                  pending: de ? "wartet" : "pending",
+                  sent: de ? "zugestellt" : "delivered",
+                  failed: de ? "fehlgeschlagen" : "failed",
+                  unknown: de ? "Zustellung unklar" : "delivery uncertain",
+                  skipped: de ? "übersprungen" : "skipped",
+                  unavailable: de ? "nicht verbunden" : "unavailable",
+                } as Record<string, string>
+              )[issue.telegram] ?? issue.telegram}
+            </p>
+            <AppLink className="text-link" href={issue.href}>
+              {de ? "Problem prüfen" : "Check issue"}
+            </AppLink>
+          </div>
+        ))}
+        {(ops.pending > 0 || ops.changed > 0) && (
+          <AppLink className="text-link" href={shell.hrefOf("knowledge-review")}>
+            {de
+              ? `${ops.changed} geändert · ${ops.pending} neu`
+              : `${ops.changed} changed · ${ops.pending} new`}
+          </AppLink>
+        )}
+        {!settings && isOwner && (
+          <AppLink
+            className="text-link"
+            href={shell.hrefOf("knowledge-health") + "?expert=1"}
+          >
+            {de ? "Index und Einstellungen ansehen" : "View index and settings"}
+          </AppLink>
+        )}
+        {settings && isOwner && (
+          <fieldset className="knowledge-operations-settings">
+            <legend>
+              {de ? "Funktionen für dieses Projekt" : "Features for this project"}
+            </legend>
+            <p>
+              {de
+                ? "Telegram nutzt den verknüpften privaten Projektbot. Automatische KI-Nutzung und GitHub-Abrufe erfordern eigene Freigaben."
+                : "Telegram uses the linked private project bot. Automated AI and GitHub reads require their own approval."}
+            </p>
+            {fields.map(([key, label]) => (
+              <Button
+                key={key}
+                variant="outline"
+                aria-pressed={ops[key]}
+                disabled={mutation.pending}
+                onClick={() =>
+                  mutation.run(() =>
+                    action(project.id, "knowledge-operations-settings", {
+                      [key]: !ops[key],
+                    }),
+                  )
+                }
+              >
+                {label} · {ops[key] ? (de ? "An" : "On") : de ? "Aus" : "Off"}
+              </Button>
+            ))}
+            {mutation.error && (
+              <WorkspaceError code={mutation.error} t={knowledgeCopy[locale]} />
+            )}
+          </fieldset>
+        )}
+      </div>
     </section>
   );
 }

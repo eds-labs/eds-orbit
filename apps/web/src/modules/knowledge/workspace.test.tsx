@@ -103,7 +103,10 @@ const render = (
           } as any
         }
       >
-        <KnowledgeWorkspaceGate tab={tab} fallback={<p>Legacy interface</p>} />
+        <KnowledgeWorkspaceGate
+          tab={tab}
+          renderFallback={() => <p>Legacy interface</p>}
+        />
       </WorkspaceContext.Provider>
     </ShellContext.Provider>,
   );
