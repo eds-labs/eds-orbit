@@ -23,17 +23,17 @@ import { assignmentTools } from "../tools/assignment-tools.ts";
 // CS-D6 (R64): with ORBIT_CREATIVE_STUDIO off, the prompts and tool schemas the
 // Creative Studio touched do not change with the flag (SHA-256 of their JSON).
 // The draft, configuration and strategy answer schema hashes are byte for byte
-// the merge base ad29a197. The strategy instructions and the assignment tool
-// schemas pin the state after the daily social automation changes (2026-11-07:
-// historyDays, recentTopics, retry action), which changed them regardless of
-// the flag. A further change here is a production change with the flag off.
-const MERGE_BASE = {
+// the merge base ad29a197. The strategy instructions and assignment tool
+// schema include the 2026-11-07 daily social automation changes. Both prompts
+// also include the 2026-11-27 assignment fix for full verified facts and a
+// single approved CTA. These changes apply regardless of the Creative Studio flag.
+const EXPECTED = {
   draftInstructions:
-    "ee036ae211ef752f1d57845f850865bbcdbbdd9cf49da6aa8b925161dc1b4077",
+    "da9fd99acfd4a58ae9c3f2f6929df98f5c5f7180987e5a4aeee226fbdc15c59a",
   draftSchema:
     "1d377f83216d8f0bde5f5117fe034ff2f3ccdd13dd448ae8351cade7bbc91181",
   strategyInstructions:
-    "169b0d2d29451342c577fdb295a8a7a5c32f2e5445055c29662dacca410f907d",
+    "8e3d24817c13503c66112f746cec9e5c5a2276905f6b4bb12b483a5120f0abca",
   strategySchema:
     "5f4c6960138bec2fdf93ea547899c5220ffaeda59fe378f314814a681b73d71a",
   // Changed on purpose 2026-11-07: the banner field's description no longer
@@ -113,7 +113,7 @@ function strategy(input: unknown) {
   return { instructions: specialist.instructions, schema };
 }
 
-describe("Creative Studio off: prompts and tool schemas as at the merge base", () => {
+describe("Creative Studio off: baseline prompts and tool schemas", () => {
   beforeEach(() => {
     for (const [name, value] of Object.entries(REQUIRED))
       vi.stubEnv(name, process.env[name] ?? value);
@@ -123,8 +123,8 @@ describe("Creative Studio off: prompts and tool schemas as at the merge base", (
 
   it("keeps the draft instructions and the draft JSON schema", async () => {
     const request = await draftRequest();
-    expect(sha(request.instructions)).toBe(MERGE_BASE.draftInstructions);
-    expect(sha(request.schema)).toBe(MERGE_BASE.draftSchema);
+    expect(sha(request.instructions)).toBe(EXPECTED.draftInstructions);
+    expect(sha(request.schema)).toBe(EXPECTED.draftSchema);
     expect(JSON.stringify(request.schema)).not.toMatch(
       /banner|creative|coreMessage|hook/,
     );
@@ -136,20 +136,20 @@ describe("Creative Studio off: prompts and tool schemas as at the merge base", (
       { assignment: { creative: { artPer: "post" } } },
     ]) {
       const plain = strategy(input);
-      expect(sha(plain.instructions)).toBe(MERGE_BASE.strategyInstructions);
-      expect(sha(plain.schema)).toBe(MERGE_BASE.strategySchema);
+      expect(sha(plain.instructions)).toBe(EXPECTED.strategyInstructions);
+      expect(sha(plain.schema)).toBe(EXPECTED.strategySchema);
     }
   });
 
   it("keeps the assignment tools' JSON schemas", () => {
-    expect(sha(assignmentTools.map(toolJson))).toBe(MERGE_BASE.assignmentTools);
+    expect(sha(assignmentTools.map(toolJson))).toBe(EXPECTED.assignmentTools);
   });
 
   it("keeps the MCP configuration update tool's JSON schema and description", () => {
     const tool = configurationTools.find(
       (candidate) => candidate.name === "project_configuration_update",
     )!;
-    expect(sha(toolJson(tool))).toBe(MERGE_BASE.configurationUpdate);
+    expect(sha(toolJson(tool))).toBe(EXPECTED.configurationUpdate);
   });
 
   // R65: the switch alone changes no prompt; a task without a creative (the
@@ -157,7 +157,7 @@ describe("Creative Studio off: prompts and tool schemas as at the merge base", (
   it("keeps the strategy with the switch on for a task without a creative", () => {
     vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
     const plain = strategy({ assignment: {} });
-    expect(sha(plain.instructions)).toBe(MERGE_BASE.strategyInstructions);
-    expect(sha(plain.schema)).toBe(MERGE_BASE.strategySchema);
+    expect(sha(plain.instructions)).toBe(EXPECTED.strategyInstructions);
+    expect(sha(plain.schema)).toBe(EXPECTED.strategySchema);
   });
 });
