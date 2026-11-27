@@ -1,17 +1,47 @@
 "use client";
-import { useEffect, useRef } from "react";
+import {
+  useEffect,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import Link from "next/link";
 import { LogOut, Settings } from "lucide-react";
 import type { Identity } from "@/lib/api";
 import type { Text } from "@/lib/i18n";
+import { AppearanceOptions } from "@/platform/appearance/appearance-options";
 
 /**
- * The account menu has one entry besides signing out: the center (ADR 0013,
+ * The account menu opens the center (ADR 0013,
  * settings center phase 5), which holds the account, the organization settings
- * and the administration. What a member sees there follows their
- * capabilities; the API refuses the pages to anyone else.
+ * and the administration. It also holds this browser's appearance setting.
+ * What a member sees in the center follows their capabilities.
  */
 const MANAGE_HREF = "/manage";
+
+function moveMenuFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
+  const { key } = event;
+  if (
+    key !== "ArrowDown" &&
+    key !== "ArrowUp" &&
+    key !== "Home" &&
+    key !== "End"
+  )
+    return;
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>(
+      '[role="menuitem"]:not(:disabled), [role="menuitemradio"]',
+    ),
+  );
+  const current = items.indexOf(document.activeElement as HTMLElement);
+  if (current < 0) return;
+  event.preventDefault();
+  if (key === "Home") items[0]?.focus();
+  else if (key === "End") items.at(-1)?.focus();
+  else {
+    const offset = key === "ArrowDown" ? 1 : -1;
+    items[(current + offset + items.length) % items.length]?.focus();
+  }
+}
 
 export function UserMenu({
   identity,
@@ -32,8 +62,14 @@ export function UserMenu({
     const close = (e: Event) => {
       const menu = ref.current;
       if (!menu?.open) return;
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !menu.contains(e.target as Node))
+      if (
+        e instanceof KeyboardEvent
+          ? e.key === "Escape"
+          : !menu.contains(e.target as Node)
+      ) {
         menu.open = false;
+        if (e instanceof KeyboardEvent) menu.querySelector("summary")?.focus();
+      }
     };
     document.addEventListener("click", close);
     document.addEventListener("keydown", close);
@@ -52,7 +88,11 @@ export function UserMenu({
       >
         {name.charAt(0).toUpperCase()}
       </summary>
-      <div className="user-menu-panel" role="menu">
+      <div
+        className="user-menu-panel"
+        role="menu"
+        onKeyDown={moveMenuFocus}
+      >
         <div className="user-menu-who">
           <strong>{name}</strong>
           <small>{identity.user.email}</small>
@@ -61,6 +101,7 @@ export function UserMenu({
           <Settings aria-hidden />
           {t("manageTitle")}
         </Link>
+        <AppearanceOptions t={t} />
         <button
           role="menuitem"
           className="user-menu-item"
