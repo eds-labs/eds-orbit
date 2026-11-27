@@ -475,7 +475,7 @@ export function IndexManagement() {
   };
   const error = mutation.error ? reason(text, mutation.error) : null;
   return (
-    <section className="panel administration-panel">
+    <section className="panel administration-panel knowledge-index-panel">
       <div className="panel-head">
         <div>
           <h2>{text.title}</h2>
@@ -484,8 +484,8 @@ export function IndexManagement() {
       </div>
       <ResourceError error={indexes.error} retry={indexes.refresh} />
       {isOwner && indexRefresh && (
-        <div className="data-row">
-          <div>
+        <div className="knowledge-index-refresh">
+          <div className="knowledge-index-description">
             <p>{text.refreshTerms}</p>
             <p role="status">
               {refreshing
@@ -503,7 +503,7 @@ export function IndexManagement() {
               <Alert kind="error">{error}</Alert>
             )}
           </div>
-          <div className="form-actions">
+          <div className="knowledge-index-actions">
             <Button
               disabled={current || refreshing || mutation.pending}
               onClick={() =>
@@ -536,7 +536,7 @@ export function IndexManagement() {
         </div>
       )}
       {isOwner && (
-        <details>
+        <details className="knowledge-index-manual">
           <summary>{text.advanced}</summary>
           <Button variant="outline" onClick={() => open("begin", null)}>
             {text.prepare}

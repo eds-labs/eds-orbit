@@ -24,10 +24,10 @@ import type { KnowledgeTab } from "./knowledge";
 
 export function KnowledgeWorkspaceGate({
   tab,
-  fallback,
+  renderFallback,
 }: {
   tab: KnowledgeTab;
-  fallback: ReactNode;
+  renderFallback: (operations?: ReactNode) => ReactNode;
 }) {
   const { project, revision, locale, isOwner } = useWorkspace();
   const expert = useSearchParams()?.get("expert") === "1";
@@ -64,14 +64,15 @@ export function KnowledgeWorkspaceGate({
     return (
       <>
         <TechnicalNav tab={tab} />
-        {tab === "health" && isOwner && (
-          <KnowledgeOperations
-            data={data}
-            refresh={resource.refresh}
-            settings
-          />
+        {renderFallback(
+          tab === "health" && isOwner ? (
+            <KnowledgeOperations
+              data={data}
+              refresh={resource.refresh}
+              settings
+            />
+          ) : undefined,
         )}
-        {fallback}
       </>
     );
   if (data?.enabled)
@@ -93,7 +94,7 @@ export function KnowledgeWorkspaceGate({
         </Button>
       </section>
     );
-  return fallback;
+  return renderFallback();
 }
 
 function WorkspaceView({

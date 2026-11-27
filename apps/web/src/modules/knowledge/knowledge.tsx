@@ -10,7 +10,7 @@ import { KnowledgeWorkspaceGate } from "./workspace";
 import { FactWithdrawal } from "./fact-withdrawal";
 import { IndexManagement } from "./index-management";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useShell } from "@/platform/shell/shell-context";
 import { cn } from "@/lib/utils";
 import {
@@ -101,8 +101,9 @@ export function Knowledge({ tab }: { tab: KnowledgeTab }) {
   return (
     <KnowledgeWorkspaceGate
       tab={tab}
-      fallback={
+      renderFallback={(operations) => (
         <LegacyKnowledge
+          operations={operations}
           tab={
             tab === "review"
               ? "conflicts"
@@ -111,11 +112,17 @@ export function Knowledge({ tab }: { tab: KnowledgeTab }) {
                 : tab
           }
         />
-      }
+      )}
     />
   );
 }
-function LegacyKnowledge({ tab }: { tab: KnowledgeTab }) {
+function LegacyKnowledge({
+  tab,
+  operations,
+}: {
+  tab: KnowledgeTab;
+  operations?: ReactNode;
+}) {
   const { t, locale, isOwner } = useWorkspace();
   const x = expertCopy[locale];
   const shell = useShell();
@@ -138,6 +145,7 @@ function LegacyKnowledge({ tab }: { tab: KnowledgeTab }) {
           </Button>
         )}
       </PageHead>
+      {operations}
       {tab === "sources" ? (
         <Sources />
       ) : tab === "facts" ? (

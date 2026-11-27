@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { appearanceBootstrap } from "@/platform/appearance/preference";
 import "./globals.css";
 export const metadata: Metadata = {
   title: "EDS Orbit",
@@ -12,7 +13,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <meta name="color-scheme" content="light dark" />
+        <script>{appearanceBootstrap}</script>
+      </head>
       <body>{children}</body>
     </html>
   );

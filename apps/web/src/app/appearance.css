@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light dark;
+
+  --dark-canvas: #0b1724;
+  --dark-surface: #132638;
+  --dark-raised: #192e43;
+  --dark-hover: #20374e;
+  --dark-border: #30495f;
+  --dark-border-strong: #66829a;
+  --dark-text: #e6f1fa;
+  --dark-muted-text: #a9bed1;
+  --dark-accent: #89bdff;
+  --dark-accent-surface: #1b3957;
+  --dark-success: #88d6b6;
+  --dark-success-surface: #183b35;
+  --dark-warning: #f6d48c;
+  --dark-warning-surface: #41351f;
+  --dark-danger: #ffadba;
+  --dark-danger-surface: #442936;
+  --dark-violet: #d8c5ff;
+  --dark-violet-surface: #352c50;
+
+  --background: light-dark(#f7fcff, var(--dark-canvas));
+  --foreground: light-dark(#071522, var(--dark-text));
+  --primary: light-dark(#0969ff, var(--dark-accent));
+  --primary-foreground: light-dark(#fff, var(--dark-canvas));
+  --muted: light-dark(#eaf4fb, var(--dark-raised));
+  --muted-foreground: light-dark(#60738a, var(--dark-muted-text));
+  --border: light-dark(#dceaf4, var(--dark-border));
+  --panel: light-dark(rgba(255, 255, 255, 0.76), var(--dark-surface));
+  --surface: light-dark(#fff, var(--dark-surface));
+  --ring: light-dark(#0969ff, var(--dark-accent));
+  --danger: light-dark(#ae3647, var(--dark-danger));
+  --danger-solid: #ae3647;
+  --success: light-dark(#17725a, var(--dark-success));
+  --shadow: 0 10px 32px light-dark(rgba(42, 83, 126, 0.045), #0005);
+
+  /* Native selects use a fixed SVG where appearance: none hides the OS arrow. */
+  --select-chevron-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%234a6782' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  --select-chevron-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a9bed1' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  --select-chevron: var(--select-chevron-light);
+}
+
+:root[data-appearance="light"] {
+  color-scheme: light;
+}
+
+:root[data-appearance="dark"] {
+  color-scheme: dark;
+  --select-chevron: var(--select-chevron-dark);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) {
+    --select-chevron: var(--select-chevron-dark);
+  }
+}
