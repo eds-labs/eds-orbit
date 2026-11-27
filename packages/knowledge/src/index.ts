@@ -901,11 +901,19 @@ export function safeCitation(value: string | null) {
     return null;
   }
 }
+export const EDITORIAL_EVIDENCE_CHANGES = [
+  "fact_changed",
+  "fact_superseded",
+  "fact_conflict",
+  "source_changed",
+] as const;
+
 export async function validateEvidence(
   tx: DbTx,
   s: Scope,
   evidenceId: string,
   at: Date | string = new Date(),
+  options: { approvedEditorialRevision?: boolean } = {},
 ) {
   const e = await tx.entity.findFirst({
     where: { ...where(s), id: evidenceId, kind: "evidence" },
@@ -922,7 +930,11 @@ export async function validateEvidence(
     !(await evidenceOriginEvaluated(tx, s, d.indexId, d.createdAt))
   )
     reasons.push("index_generation_changed");
-  if (d.status !== "ready" || d.purpose !== "public")
+  const editorial = options.approvedEditorialRevision === true;
+  if (
+    (d.status !== "ready" && !(editorial && d.status === "invalidated")) ||
+    d.purpose !== "public"
+  )
     reasons.push("evidence_not_public_ready");
   const all = [...d.facts, ...d.items];
   if (!all.length) reasons.push("insufficient_evidence");
@@ -953,8 +965,16 @@ export async function validateEvidence(
     const data = f?.data as unknown as FactData | undefined;
     if (
       !f ||
-      f.version !== fact.version ||
-      data?.status !== "verified" ||
+      !data ||
+      (!editorial && f.version !== fact.version) ||
+      (editorial && data.sourceId !== fact.sourceId) ||
+      (data.status !== "verified" &&
+        !(
+          editorial &&
+          (["superseded", "conflicting"].includes(data.status) ||
+            (data.status === "candidate" &&
+              data.reviewReason === "source_changed"))
+        )) ||
       (d.purpose === "public" && !data.publicUse) ||
       (d.forModel && !data.modelUse) ||
       !validAt(data.validFrom, data.validUntil, point)
@@ -963,12 +983,18 @@ export async function validateEvidence(
   }
   for (const item of d.items) {
     const v = await tx.documentVersion.findFirst({
-      where: { ...where(s), id: item.documentVersionId, state: "active" },
+      where: {
+        ...where(s),
+        id: item.documentVersionId,
+        state: editorial ? { in: ["active", "superseded"] } : "active",
+      },
       include: { document: true },
     });
     if (
       !v ||
-      v.document.activeVersionId !== v.id ||
+      (editorial
+        ? !v.document.activeVersionId
+        : v.document.activeVersionId !== v.id) ||
       !validAt(v.validFrom, v.validUntil, point)
     ) {
       reasons.push("document_changed_or_expired");

@@ -3,6 +3,16 @@ import type {
   ImpactHandler,
   Scope,
 } from "../../../../../../packages/knowledge/src/index.ts";
+import {
+  EDITORIAL_EVIDENCE_CHANGES,
+  validateEvidence,
+} from "../../../../../../packages/knowledge/src/index.ts";
+import {
+  adviseBookingReview,
+  BOOKING_KNOWLEDGE_REVIEW,
+  reviewableBookings,
+} from "../publishing/booking-review.ts";
+import { data } from "../../../shared.ts";
 import { closedDraftStatus } from "../approval-state.ts";
 
 const json = (value: unknown) =>
@@ -99,6 +109,36 @@ export const invalidateMarketingForKnowledge: ImpactHandler = async (
       )
       .map((e) => e.id),
   );
+  const protectedBookings = new Set<string>();
+  const protectedContents = new Set<string>();
+  if (
+    !purge &&
+    (EDITORIAL_EVIDENCE_CHANGES as readonly string[]).includes(reason)
+  ) {
+    for (const booking of reviewableBookings(all)) {
+      const b = data(booking);
+      if (!contentIds.has(b.contentId) || !evidenceIds.has(b.evidenceId))
+        continue;
+      const current = await tx.entity.findFirst({
+        where: { ...where(s), id: b.evidenceId, kind: "evidence" },
+      });
+      if (
+        !current ||
+        current.version < 2 ||
+        !(
+          await validateEvidence(tx, s, current.id, new Date(), {
+            approvedEditorialRevision: true,
+          })
+        ).valid
+      )
+        continue;
+      await adviseBookingReview(tx, s, booking, BOOKING_KNOWLEDGE_REVIEW, {
+        evidenceVersion: current.version - 1,
+      });
+      protectedBookings.add(booking.id);
+      protectedContents.add(b.contentId);
+    }
+  }
   for (const e of all) {
     const d = e.data as Record<string, unknown>;
     const bySource =
@@ -113,7 +153,18 @@ export const invalidateMarketingForKnowledge: ImpactHandler = async (
       evidenceIds.has(String(d.evidenceId)) ||
       contentIds.has(e.id) ||
       contentIds.has(String(d.contentId));
-    if (!related) continue;
+    if (
+      !related ||
+      protectedBookings.has(e.id) ||
+      ((e.kind === "content" || e.kind === "approvals") &&
+        protectedContents.has(
+          e.kind === "content" ? e.id : String(d.contentId),
+        )) ||
+      (e.kind === "jobs" &&
+        d.topic === "publishing" &&
+        protectedBookings.has(String(d.resourceId)))
+    )
+      continue;
     const purged = purge && ["content", "insights"].includes(e.kind);
     let status =
       e.kind === "content"

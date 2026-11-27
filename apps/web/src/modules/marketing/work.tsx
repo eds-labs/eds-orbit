@@ -840,6 +840,19 @@ export function ContentEditor({
     onClose();
   });
   const d = entity?.data;
+  const recovery = typeof d?.recoveredFromPublicationId === "string";
+  const priorClaims = recovery
+    ? ((d?.claims as
+        | { text: string; kind: string; factId?: string; chunkId?: string }[]
+        | undefined) ?? [])
+    : [];
+  const factOptions = (facts.data?.items || [])
+    .filter((fact) => fact.data.status === "verified")
+    .map((fact) => ({
+      value: fact.id,
+      label: `${value(fact, "key")}: ${value(fact, "value")}`,
+    }));
+  const de = locale === "de";
   const postizChannels = (connectors.data?.items || [])
     .filter(
       (connector) =>
@@ -936,13 +949,39 @@ export function ContentEditor({
       name: "factId",
       label: "Supporting verified fact",
       type: "select",
-      options: (facts.data?.items || [])
-        .filter((f) => f.data.status === "verified")
-        .map((f) => ({
-          value: f.id,
-          label: `${value(f, "key")}: ${value(f, "value")}`,
-        })),
+      options: factOptions,
     },
+    ...priorClaims.flatMap((claim, index): FormField[] => [
+      {
+        name: `claim-${index}`,
+        label: de ? "Aussage im Beitrag" : "Claim in the post",
+        type: "textarea",
+        value: claim.text,
+        max: 2000,
+        hint: de
+          ? "Leere das Feld, wenn du die Aussage auch aus dem Beitrag entfernt hast."
+          : "Clear this field if you also removed the claim from the post.",
+      },
+      {
+        name: `fact-${index}`,
+        label: de ? "Beleg für diese Aussage" : "Evidence for this claim",
+        type: "select",
+        value: claim.factId ?? "",
+        options:
+          claim.factId &&
+          !factOptions.some((fact) => fact.value === claim.factId)
+            ? [
+                {
+                  value: claim.factId,
+                  label: de
+                    ? "Bisheriger Beleg (erneut prüfen)"
+                    : "Previous evidence (review required)",
+                },
+                ...factOptions,
+              ]
+            : factOptions,
+      },
+    ]),
     {
       name: "scheduledAt",
       label: "Schedule (browser local time)",
@@ -1055,7 +1094,16 @@ export function ContentEditor({
   return (
     <Modal title={entity ? t("edit") : t("newContent")} onClose={onClose} wide>
       <DataForm
-        fields={fields}
+        fields={
+          recovery
+            ? fields.filter(
+                (field) =>
+                  !["type", "language", "channel", "missionId"].includes(
+                    field.name,
+                  ),
+              )
+            : fields
+        }
         t={t}
         pending={mutation.pending}
         error={mutation.error}
@@ -1068,30 +1116,46 @@ export function ContentEditor({
                 throw new Error(
                   "Select the verified fact that supports your claim.",
                 );
+              const missionId = recovery ? d?.missionId : str(v, "missionId");
               const selectedMission = missions.data?.items.find(
-                (mission) => mission.id === str(v, "missionId"),
+                (mission) => mission.id === missionId,
               );
               if (!selectedMission?.data.targetUrl)
                 throw new Error(
                   "Select a campaign with an official target link.",
                 );
+              const addedClaim = str(v, "claim")
+                ? [
+                    {
+                      text: str(v, "claim"),
+                      factId: str(v, "factId"),
+                      kind: "fact",
+                    },
+                  ]
+                : [];
+              const editedClaims = priorClaims.flatMap((claim, index) => {
+                const text = str(v, `claim-${index}`);
+                if (!text) return [];
+                const factId = str(v, `fact-${index}`);
+                return [
+                  factId && factId !== claim.factId
+                    ? { text, factId, kind: "fact" }
+                    : { ...claim, text },
+                ];
+              });
               const data = {
                 title: str(v, "title"),
                 body: str(v, "body"),
-                type: str(v, "type"),
-                language: str(v, "language"),
-                channel: str(v, "channel"),
-                missionId: str(v, "missionId"),
+                type: recovery ? d?.type : str(v, "type"),
+                language: recovery ? d?.language : str(v, "language"),
+                channel: recovery ? d?.channel : str(v, "channel"),
+                missionId,
                 evidenceId: str(v, "evidenceId"),
-                claims: str(v, "claim")
-                  ? [
-                      {
-                        text: str(v, "claim"),
-                        factId: str(v, "factId"),
-                        kind: "fact",
-                      },
-                    ]
-                  : entity?.data.claims || [],
+                claims: recovery
+                  ? [...editedClaims, ...addedClaim]
+                  : addedClaim.length
+                    ? addedClaim
+                    : d?.claims || [],
                 targetUrl: selectedMission.data.targetUrl,
                 ...(str(v, "scheduledAt")
                   ? { scheduledAt: iso(v, "scheduledAt") }
@@ -1139,17 +1203,8 @@ export function ContentEditor({
                     }
                   : {}),
                 risk: str(v, "risk"),
-                ...(() => {
-                  const mission = (missions.data?.items || []).find(
-                    (item) => item.id === str(v, "missionId"),
-                  );
-                  return mission
-                    ? {
-                        campaignType: mission.data.campaignType,
-                        profileVersion: mission.data.profileVersion,
-                      }
-                    : {};
-                })(),
+                campaignType: selectedMission.data.campaignType,
+                profileVersion: selectedMission.data.profileVersion,
                 ...(d?.assetId ? { assetId: d.assetId } : {}),
               };
               return entity
@@ -1203,8 +1258,8 @@ export function ContentDetail({
     [edit, setEdit] = useState(false),
     [preflight, setPreflight] = useState<Record<string, unknown> | null>(null);
   const resource = useCollection("content");
-  const current =
-    resource.data?.items.find((e) => e.id === entity.id) || entity;
+  const stored = resource.data?.items.find((e) => e.id === entity.id);
+  const current = stored && stored.version >= entity.version ? stored : entity;
   const [adapting, setAdapting] = useState(false);
   const mutation = useMutation(() => {
     refresh();
@@ -1214,6 +1269,18 @@ export function ContentDetail({
     collectionPath(project.id, "evidence"),
   );
   const ev = evidence.data?.items.find((e) => e.id === current.data.evidenceId);
+  const recovery = typeof current.data.recoveredFromPublicationId === "string";
+  const slot = Date.parse(String(current.data.scheduledAt ?? ""));
+  const booked = (publications.data?.items ?? []).some(
+    (p) =>
+      p.data.contentId === current.id &&
+      !["canceled", "blocked_dependency", "failed"].includes(
+        String(p.data.status),
+      ),
+  );
+  const blockers =
+    (current.data.review as { problems?: string[] } | undefined)?.problems ??
+    [];
   if (adapting)
     return (
       <AdaptationDialog
@@ -1254,7 +1321,10 @@ export function ContentDetail({
         packageHash: pre.packageHash,
       });
     }
-    return action(project.id, name, {
+    const result = await action<{
+      readOnly?: boolean;
+      review?: { valid: boolean; problems: string[] };
+    }>(project.id, name, {
       contentId: current.id,
       version: current.version,
       ...(name === "review" ? { humanConfirm } : {}),
@@ -1262,6 +1332,13 @@ export function ContentDetail({
         ? { scheduledAt: current.data.scheduledAt }
         : {}),
     });
+    if (result?.readOnly && result.review)
+      setPreflight({
+        status:
+          locale === "de" ? "Aktuelle Belegprüfung" : "Current evidence review",
+        blockers: result.review.problems,
+      });
+    return result;
   }
   return (
     <Modal title={value(current, "title")} onClose={onClose} wide>
@@ -1331,16 +1408,32 @@ export function ContentDetail({
           access={isOwner ? "owner" : canEdit ? "editor" : "viewer"}
         />
       )}
-      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {mutation.error && (
+        <Alert kind="error">
+          {mutation.error === "RECOVERY SLOT OCCUPIED"
+            ? locale === "de"
+              ? "Für diesen Kanal ist zur gewählten Zeit bereits ein Beitrag eingeplant. Wähle einen anderen Termin."
+              : "This channel already has a post scheduled for that time. Choose another time."
+            : mutation.error}
+        </Alert>
+      )}
       {mutation.success && (
         <Alert kind="success">
           Action recorded. The current server status is shown above.
         </Alert>
       )}
-      {isOwner && current.data.status === "reviewed" && (
+      {isOwner && !recovery && current.data.status === "reviewed" && (
         <PostizDraftSection content={current} />
       )}
-      {isOwner && (
+      {recovery && !booked && (
+        <Alert>
+          {locale === "de"
+            ? "Prüfe den Text und die aktuellen Belege. Den Termin kannst du unter „Bearbeiten“ ändern."
+            : "Review the text and current evidence. Use Edit to change the posting time."}
+          {blockers.length > 0 && <p>{blockers.join(", ")}</p>}
+        </Alert>
+      )}
+      {isOwner && !booked && (
         <label className="review-confirm">
           <Input
             type="checkbox"
@@ -1375,7 +1468,13 @@ export function ContentDetail({
                 Creative
               </Button>
             )}
-            <Button variant="outline" onClick={() => setEdit(true)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (recovery) setHumanConfirm(false);
+                setEdit(true);
+              }}
+            >
               {t("edit")}
             </Button>
             <Button
@@ -1386,7 +1485,39 @@ export function ContentDetail({
               <ShieldCheck data-icon="inline-start" />
               {t("review")}
             </Button>
-            {isOwner && (
+            {recovery && isOwner && (
+              <Button
+                disabled={
+                  mutation.pending ||
+                  booked ||
+                  current.data.status !== "reviewed" ||
+                  !(slot > Date.now())
+                }
+                onClick={() => {
+                  const time = when(
+                    current.data.scheduledAt,
+                    locale,
+                    project.timezone,
+                  );
+                  const title = value(current, "title");
+                  if (
+                    window.confirm(
+                      locale === "de"
+                        ? `„${title}“ für ${time} freigeben und einplanen?`
+                        : `Approve and schedule “${title}” for ${time}?`,
+                    )
+                  )
+                    void mutation.run(() =>
+                      run("release-publication-recovery"),
+                    );
+                }}
+              >
+                {locale === "de"
+                  ? "Erneut freigeben und einplanen"
+                  : "Approve again and schedule"}
+              </Button>
+            )}
+            {!recovery && isOwner && !booked && (
               <Button
                 disabled={mutation.pending}
                 onClick={() => mutation.run(() => run("approve"))}
@@ -1394,13 +1525,15 @@ export function ContentDetail({
                 {t("approve")}
               </Button>
             )}
-            <Button
-              variant="outline"
-              disabled={mutation.pending}
-              onClick={() => mutation.run(() => run("publish"))}
-            >
-              {t("testPublish")}
-            </Button>
+            {!recovery && !booked && (
+              <Button
+                variant="outline"
+                disabled={mutation.pending}
+                onClick={() => mutation.run(() => run("publish"))}
+              >
+                {t("testPublish")}
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -1769,6 +1902,96 @@ function PausedPublications() {
     </section>
   );
 }
+function PublicationRecoveryList({
+  publications,
+  contents,
+  onSelect,
+}: {
+  publications: Entity[];
+  contents: Entity[];
+  onSelect: (content: Entity) => void;
+}) {
+  const { project, locale, isOwner, refresh } = useWorkspace();
+  const mutation = useMutation(refresh);
+  if (!isOwner) return null;
+  const de = locale === "de";
+  const byId = new Map(contents.map((content) => [content.id, content]));
+  const attempted = new Set<string>();
+  const active = new Set(
+    publications
+      .filter(
+        (p) =>
+          !["blocked_dependency", "canceled", "failed"].includes(
+            String(p.data.status),
+          ),
+      )
+      .map((p) => String(p.data.contentId)),
+  );
+  const eligible = publications.filter((p) => {
+    const d = p.data;
+    const id = String(d.contentId);
+    const content = byId.get(id);
+    if (
+      attempted.has(id) ||
+      active.has(id) ||
+      !content ||
+      closedDraftStatus(content.data) ||
+      !["blocked_dependency", "canceled"].includes(String(d.status)) ||
+      ((d.remoteId || d.handoffCompletedAt) &&
+        !(
+          d.status === "canceled" &&
+          d.publishingBackend === "social" &&
+          d.remoteId
+        )) ||
+      d.reconciliationStatus === "required" ||
+      d.recoveredContentId ||
+      d.reason === "PROJECT_PAUSED"
+    )
+      return false;
+    attempted.add(id);
+    return true;
+  });
+  if (!eligible.length && !mutation.error) return null;
+  return (
+    <section className="panel approval-list">
+      <h3>{de ? "Beiträge erneut prüfen" : "Review stopped posts again"}</h3>
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {eligible.map((p) => {
+        const content = byId.get(String(p.data.contentId))!;
+        return (
+          <article className="approval-item" id={`recovery-${p.id}`} key={p.id}>
+            <p>
+              {value(content, "title")} ·{" "}
+              {when(p.data.scheduledAt, locale, project.timezone)}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={mutation.pending}
+              onClick={() =>
+                void mutation.run(async () => {
+                  const saved = await action<Entity>(
+                    project.id,
+                    "prepare-publication-recovery",
+                    {
+                      publicationId: p.id,
+                      version: p.version,
+                    },
+                  );
+                  if (saved) onSelect(saved);
+                  return saved;
+                })
+              }
+            >
+              {de ? "Zur erneuten Prüfung öffnen" : "Open for fresh review"}
+            </Button>
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
 /** History rows the approvals page shows, newest first. */
 const HISTORY_LIMIT = 50;
 function ExceptionRowWords({ exception }: { exception: Entity }) {
@@ -1867,9 +2090,10 @@ export function ApprovalInbox() {
     : undefined;
   useEffect(() => {
     if (focus && focusLane)
-      document
-        .getElementById(`publication-${focus}`)
-        ?.scrollIntoView({ block: "center" });
+      (
+        document.getElementById(`recovery-${focus}`) ??
+        document.getElementById(`publication-${focus}`)
+      )?.scrollIntoView({ block: "center" });
   }, [focus, focusLane]);
   const socialOpen = Boolean(
     shell?.modules.some(
@@ -2018,6 +2242,11 @@ export function ApprovalInbox() {
               </Alert>
             ))}
             <PausedPublications />
+            <PublicationRecoveryList
+              publications={publications.data?.items ?? []}
+              contents={content.data?.items ?? []}
+              onSelect={setSelected}
+            />
             <AwaitingOwnerDraftList items={pending} {...draftList} />
             {open.length > 0 && (
               <section className="panel approval-list">
@@ -2096,19 +2325,37 @@ export function ApprovalInbox() {
                 controls: (item, channel) => {
                   // A Postiz draft hand-off has no Stop; its note says enough.
                   const upcoming = upcomingOf(item);
-                  return upcoming && upcoming.delivery !== "postiz_draft" ? (
-                    <UpcomingPostControls
-                      item={upcoming}
-                      stopLabel={`Stop – ${channel}`}
-                      de={de}
-                      timezone={project.timezone}
-                      canStop={canEdit}
-                      pending={agent.mutation.pending}
-                      handedOver={agent.handedOver}
-                      onStop={agent.stop}
-                      compact
-                    />
-                  ) : null;
+                  const advisory = item.publications.some(
+                    (p) =>
+                      p.data.status === "intent_created" &&
+                      p.data.reviewAdvised,
+                  );
+                  const controls =
+                    upcoming && upcoming.delivery !== "postiz_draft" ? (
+                      <UpcomingPostControls
+                        item={upcoming}
+                        stopLabel={`Stop – ${channel}`}
+                        de={de}
+                        timezone={project.timezone}
+                        canStop={canEdit}
+                        pending={agent.mutation.pending}
+                        handedOver={agent.handedOver}
+                        onStop={agent.stop}
+                        compact
+                      />
+                    ) : null;
+                  return advisory ? (
+                    <>
+                      <p className="panel-note">
+                        {de
+                          ? "Prüfhinweis: Belege oder Marketingprofil wurden aktualisiert. Der Beitrag bleibt eingeplant."
+                          : "Review suggested: evidence or the marketing profile changed. The post stays scheduled."}
+                      </p>
+                      {controls}
+                    </>
+                  ) : (
+                    controls
+                  );
                 },
               })}
             {releasedCount === 0 && (

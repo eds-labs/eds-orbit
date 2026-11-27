@@ -3,6 +3,10 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
 import { scoped } from "../../../../../../packages/db/src/index.ts";
 import { audit, create, data, hash, list, update } from "../../../shared.ts";
+import {
+  BOOKING_KNOWLEDGE_REVIEW,
+  BOOKING_PROFILE_REVIEW,
+} from "./booking-review.ts";
 import { preflight } from "../policy/policy.ts";
 import { notify, OWNER_CAUSED } from "../agents/notifications.ts";
 import { channelNames, rowsById } from "../agents/assignment-overview.ts";
@@ -111,7 +115,15 @@ export async function postRisk(
     // The claim refuses a changed package as well (workflow.ts claimPublication).
     if (checked.packageHash !== d.packageHash) codes.add("PACKAGE_CHANGED");
   }
-  return [...codes].filter((code) => !OWNER_CAUSED.includes(code)).sort();
+  const blockers = [...codes]
+    .filter((code) => !OWNER_CAUSED.includes(code))
+    .sort();
+  if (blockers.length || d.status !== "intent_created") return blockers;
+  return (
+    Array.isArray(d.reviewAdvised?.reasons) ? d.reviewAdvised.reasons : []
+  )
+    .filter(isBookingAdvisory)
+    .sort();
 }
 
 /** The watch's memory of one released post (kind `publication_watch`); never publishing authority. */
@@ -128,7 +140,18 @@ export type WatchState = {
   lastNoticeRef?: string | null;
 };
 
+export const isBookingAdvisory = (code: string) =>
+  code === BOOKING_KNOWLEDGE_REVIEW || code === BOOKING_PROFILE_REVIEW;
+
 const REASONS: Record<string, { de: string; en: string }> = {
+  [BOOKING_KNOWLEDGE_REVIEW]: {
+    de: "Wissen geändert. Der Beitrag bleibt eingeplant und kann geprüft werden.",
+    en: "Knowledge changed. The post stays scheduled and can be reviewed.",
+  },
+  [BOOKING_PROFILE_REVIEW]: {
+    de: "Marketingprofil ergänzt. Der Beitrag bleibt eingeplant und kann geprüft werden.",
+    en: "The marketing profile was extended. The post stays scheduled and can be reviewed.",
+  },
   LIVE_RAG_EVAL_REQUIRED: {
     de: "Der Wissensindex ist nicht geprüft oder nicht mehr gültig",
     en: "The knowledge index is not evaluated or no longer valid",
@@ -369,7 +392,13 @@ export async function runReleasedPostWatch(
         await notifyMembers(tx, scope, {
           kind: kinds[kind],
           userIds: owners.slice(0, 200),
-          title: registeredUserNotification(kinds[kind])!.label[language],
+          title:
+            kind === "changed" &&
+            group.every((entry) => entry.codes.every(isBookingAdvisory))
+              ? language === "de"
+                ? "Prüfhinweis für eingeplante Beiträge"
+                : "Review suggested for scheduled posts"
+              : registeredUserNotification(kinds[kind])!.label[language],
           body: lines.join("\n"),
           link: inProject(scope.projectId, "/marketing/approvals"),
         });

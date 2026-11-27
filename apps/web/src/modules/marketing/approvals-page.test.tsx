@@ -235,6 +235,30 @@ describe("approvals page in lanes (WP3)", () => {
     expect(html).toContain("an denen nichts mehr hängt");
   });
 
+  it("shows an advisory on a scheduled post and offers recovery only to the owner", () => {
+    seed();
+    search.value = "";
+    const publications = answers["/publications?"] as {
+      items: ReturnType<typeof row>[];
+    };
+    publications.items[0]!.data.reviewAdvised = {
+      reasons: ["BOOKING_KNOWLEDGE_REVIEW"],
+    };
+    publications.items[1]!.data.status = "blocked_dependency";
+    const owner = render(<ApprovalInbox />);
+    expect(owner).toContain("Der Beitrag bleibt eingeplant.");
+    // The grouped channel pair shows the lost slot separately from the advisory.
+    publications.items[1]!.data.contentId = "c-rev";
+    expect(render(<ApprovalInbox />)).toContain("Zur erneuten Prüfung öffnen");
+    expect(render(<ApprovalInbox />, { access: "editor" })).not.toContain(
+      "Zur erneuten Prüfung öffnen",
+    );
+    publications.items[1]!.data.reconciliationStatus = "required";
+    expect(render(<ApprovalInbox />)).not.toContain(
+      "Zur erneuten Prüfung öffnen",
+    );
+  });
+
   it("moves an assignment draft whose mission slot passed to cleanup, as the server does", () => {
     seed();
     search.value = "";

@@ -63,6 +63,12 @@ import {
   linkCommunityGroup,
   proposeBrief,
 } from "./pipeline/editorial.ts";
+import {
+  preparePublicationRecovery,
+  releasePublicationRecovery,
+  prepareRecoveryInput,
+  releaseRecoveryInput,
+} from "./pipeline/publication-recovery.ts";
 import { resumePausedPublications } from "./pipeline/paused-posts.ts";
 import { archiveMission } from "./pipeline/mission-archive.ts";
 import {
@@ -85,7 +91,8 @@ import {
   resumeLiveDraftBatch,
   startApprovedLiveDraftBatch,
 } from "./pipeline/draft-batch.ts";
-import { approve, preflight } from "./policy/policy.ts";
+import { releasedPublication } from "./agents/handoff-lookup.ts";
+import { approve, checkClaims, preflight } from "./policy/policy.ts";
 
 /**
  * Marketing's project actions (WP2.1f), moved unchanged from the if-chain in
@@ -349,6 +356,12 @@ export const marketingActions: Record<string, ActionHandler> = {
   "configure-matomo-schedule": sharedTransaction((tx, { scope, input }) =>
     configureMatomoSchedule(tx, scope, input),
   ),
+  "prepare-publication-recovery": sharedTransaction((tx, { scope, input }) =>
+    preparePublicationRecovery(tx, scope, prepareRecoveryInput.parse(input)),
+  ),
+  "release-publication-recovery": sharedTransaction((tx, { scope, input }) =>
+    releasePublicationRecovery(tx, scope, releaseRecoveryInput.parse(input)),
+  ),
   "resume-paused-publications": sharedTransaction((tx, { scope }) =>
     resumePausedPublications(tx, scope),
   ),
@@ -430,15 +443,19 @@ export const marketingActions: Record<string, ActionHandler> = {
       .parse(input);
     return resumeLiveDraftBatch(tx, scope, i.missionId, i.version);
   }),
-  review: sharedTransaction((tx, { scope, input }) =>
-    reviewContent(
-      tx,
-      scope,
-      schemas.id.parse(input.contentId),
-      z.number().int().parse(input.version),
-      input.humanConfirm === true,
-    ),
-  ),
+  review: sharedTransaction(async (tx, { scope, input }) => {
+    const id = schemas.id.parse(input.contentId);
+    const version = z.number().int().parse(input.version);
+    const booked = await releasedPublication(tx, scope, id);
+    if (booked) {
+      // Inspect the current evidence without changing the approved content version.
+      const row = await entity(tx, scope, "content", id);
+      if (row.version !== version)
+        throw new DomainError("VERSION_CONFLICT", 409);
+      return { readOnly: true, review: await checkClaims(tx, scope, id) };
+    }
+    return reviewContent(tx, scope, id, version, input.humanConfirm === true);
+  }),
   preflight: sharedTransaction(async (tx, { scope, input, config }) => {
     const p = await preflight(tx, scope, schemas.id.parse(input.contentId), {
       test: config.EXECUTION_MODE === "test",

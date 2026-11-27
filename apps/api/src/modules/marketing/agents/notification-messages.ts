@@ -34,7 +34,11 @@ import { SLOT_EXPIRED } from "./veto.ts";
 import { budgetMonthStart } from "../../budget.ts";
 import { localDate } from "./scheduling.ts";
 import { inProject } from "../../../platform/management/links.ts";
-import { atRiskReason, postTitle } from "../publishing/released-post-watch.ts";
+import {
+  atRiskReason,
+  isBookingAdvisory,
+  postTitle,
+} from "../publishing/released-post-watch.ts";
 
 /**
  * Marketing's notifications for the owner's Telegram bot (Orbit Agents,
@@ -576,8 +580,12 @@ async function postWatch(
     );
   const lines: string[] = [];
   for (const d of rows) {
-    const pub = data(await maybe(() => entity(tx, scope, "publications", d.publicationId)));
-    const content = data(await maybe(() => entity(tx, scope, "content", pub.contentId)));
+    const pub = data(
+      await maybe(() => entity(tx, scope, "publications", d.publicationId)),
+    );
+    const content = data(
+      await maybe(() => entity(tx, scope, "content", pub.contentId)),
+    );
     const head = `${postTitle(content)} · ${await channelName(tx, scope, pub.channel)} · ${when(d.slotAt, timezone)}`;
     lines.push(
       kind === "at_risk"
@@ -586,15 +594,22 @@ async function postWatch(
     );
   }
   if (!lines.length) return { skip: "STALE" };
+  const onlyAdvisories = rows.every((row) =>
+    (row.notifiedCodes as string[] | undefined)?.every(isBookingAdvisory),
+  );
   return plain(
     clip(
       [
         kind === "at_risk"
-          ? "Freigegebene Beiträge gefährdet"
+          ? onlyAdvisories
+            ? "Prüfhinweis für eingeplante Beiträge"
+            : "Freigegebene Beiträge gefährdet"
           : "Entwarnung: diese Beiträge sind wieder in Ordnung",
         ...lines,
         kind === "at_risk"
-          ? "Sie würden so zum Termin nicht rausgehen. Bitte in Orbit prüfen."
+          ? onlyAdvisories
+            ? "Die markierten Beiträge behalten ihren Termin. Bitte bei Bedarf in Orbit prüfen."
+            : "Beiträge mit einem blockierenden Fehler gehen so nicht zum Termin raus. Bitte in Orbit prüfen."
           : "Es ist nichts mehr zu tun.",
       ].join("\n"),
       TEXT_MAX,

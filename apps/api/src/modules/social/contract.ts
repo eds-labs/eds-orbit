@@ -403,6 +403,35 @@ export async function recentPublishedTexts(
   return variants.map((v) => v.body);
 }
 
+/** A live calendar booking for the same account and posting minute. */
+export async function hasAccountBooking(
+  tx: DbTx,
+  scope: Scope,
+  channel: string,
+  at: Date,
+): Promise<boolean> {
+  const account = await accountForChannel(tx, scope, channel);
+  if (!account) return false;
+  const minute = Math.floor(at.valueOf() / 60_000) * 60_000;
+  const posts = await tx.socialPost.findMany({
+    where: {
+      projectId: scope.projectId,
+      status: { in: ["scheduled", "approved", "publishing"] },
+      scheduledAt: { gte: new Date(minute), lt: new Date(minute + 60_000) },
+    },
+    select: { id: true },
+  });
+  if (!posts.length) return false;
+  return Boolean(await tx.socialPostVariant.findFirst({
+    where: {
+      projectId: scope.projectId,
+      accountId: account.accountId,
+      postId: { in: posts.map((post) => post.id) },
+    },
+    select: { id: true },
+  }));
+}
+
 /**
  * What was made by hand in Social on the accounts since `since`: posts that
  * went out (published, partially published) or are lined up (scheduled,
@@ -467,6 +496,41 @@ export async function recentPosts(
     .map((row) => ({ ...row, at: row.at.toISOString() }));
 }
 
+/** Confirm that a previously handed-over origin post ended without a delivery. */
+export async function confirmedOriginCancellation(
+  tx: DbTx,
+  scope: Scope,
+  postId: string,
+  origin: OriginRef,
+): Promise<boolean> {
+  const post = await tx.socialPost.findFirst({
+    where: {
+      id: postId,
+      projectId: scope.projectId,
+      originModule: origin.module,
+      originType: origin.type,
+      originId: origin.id,
+      originVersion: origin.version,
+      status: "canceled",
+    },
+    select: { id: true },
+  });
+  if (!post) return false;
+  const variants = await tx.socialPostVariant.findMany({
+    where: { projectId: scope.projectId, postId },
+    select: { id: true },
+  });
+  return (
+    (await tx.socialPublication.count({
+      where: {
+        projectId: scope.projectId,
+        variantId: { in: variants.map((variant) => variant.id) },
+        status: { not: "canceled" },
+      },
+    })) === 0
+  );
+}
+
 /**
  * Takes back an origin post the origin no longer wants (a stop, a pause, a
  * calendar block, an invalidated source): `canceled` when nothing went out,
@@ -485,10 +549,14 @@ export async function cancelOriginPost(
   if (["published", "partially_published", "failed"].includes(post.status)) return "sent";
   if (post.status === "publishing") {
     const { tooLate } = await cancelDelivery(tx, scope, post.id);
+    const variants = await tx.socialPostVariant.findMany({
+      where: { projectId: scope.projectId, postId: post.id },
+      select: { id: true },
+    });
     const sent = await tx.socialPublication.count({
       where: {
         projectId: scope.projectId,
-        variant: { postId: post.id },
+        variantId: { in: variants.map((variant) => variant.id) },
         status: { in: ["published", "outcome_unknown", "processing", "accepted"] },
       },
     });

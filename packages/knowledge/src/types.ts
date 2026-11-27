@@ -88,6 +88,7 @@ export type FactData = Omit<FactInput, "status"> & {
   sourceGeneration: number;
   recordedAt: string;
   status: "candidate" | "verified" | "conflicting" | "superseded" | "revoked";
+  reviewReason?: "source_changed";
 };
 export type ChunkInput = {
   position: number;

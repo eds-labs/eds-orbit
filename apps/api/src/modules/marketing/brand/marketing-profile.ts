@@ -1,4 +1,4 @@
-import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { DbTx, Prisma } from "../../../../../../packages/db/src/index.ts";
 import {
   authorize,
   PROJECT_OWN,
@@ -12,10 +12,17 @@ import {
   data,
   entity,
   list,
+  hash,
   update,
   audit,
   DomainError,
 } from "../../../shared.ts";
+import {
+  adviseBookingReview,
+  BOOKING_PROFILE_REVIEW,
+  reviewableBookings,
+  type BookingReview,
+} from "../publishing/booking-review.ts";
 import { closedDraftStatus } from "../approval-state.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import {
@@ -141,6 +148,42 @@ async function assertBrandKitAssets(
   }
 }
 
+function onlyAddsPrimaryCtas(
+  previous: MarketingProfile,
+  current: MarketingProfile,
+) {
+  const { primaryCtas: prior, ...before } = previous;
+  const { primaryCtas: next, ...after } = current;
+  return (
+    prior.every((cta) => next.includes(cta)) && hash(before) === hash(after)
+  );
+}
+
+export async function compatibleBookingProfile(
+  tx: DbTx,
+  scope: Scope,
+  version: number,
+) {
+  const current = await currentMarketingProfile(tx, scope);
+  if (!current || version >= current.version) return null;
+  const historical = await tx.projectMarketingProfileVersion.findFirst({
+    where: {
+      profileId: current.id,
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      version,
+    },
+  });
+  if (!historical) return null;
+  const previous = marketingProfile.safeParse(historical.data);
+  const next = marketingProfile.safeParse(current.data);
+  return previous.success &&
+    next.success &&
+    onlyAddsPrimaryCtas(previous.data, next.data)
+    ? previous.data
+    : null;
+}
+
 /**
  * Saves a new profile version. With `expectedVersion` (the version the
  * editor started from; 0 for none) a change made meanwhile, in Orbit or
@@ -162,6 +205,20 @@ export async function saveMarketingProfile(
   )
     throw new DomainError("MARKETING_PROFILE_VERSION_CONFLICT", 409);
   const version = (existing?.version ?? 0) + 1;
+  if (existing) {
+    await tx.projectMarketingProfileVersion.createMany({
+      data: [
+        {
+          profileId: existing.id,
+          version: existing.version,
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          data: existing.data as Prisma.InputJsonValue,
+        },
+      ],
+      skipDuplicates: true,
+    });
+  }
   const saved = existing
     ? await tx.projectMarketingProfile.update({
         where: { id: existing.id },
@@ -184,10 +241,54 @@ export async function saveMarketingProfile(
       data: profile,
     },
   });
-  if (existing)
-    for (const content of await list(tx, scope, "content")) {
+  if (existing) {
+    const previous = marketingProfile.safeParse(existing.data);
+    const contents = await list(tx, scope, "content");
+    const additive =
+      previous.success && onlyAddsPrimaryCtas(previous.data, profile);
+    const linked = await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: { in: ["approvals", "publications"] },
+      },
+    });
+    const byId = new Map(contents.map((c) => [c.id, c]));
+    const protectedContents = new Set<string>();
+    const previouslyProtected = new Set(
+      linked
+        .filter(
+          (row) =>
+            row.kind === "publications" &&
+            ["intent_created", "sending", "scheduled_remote"].includes(data(row).status) &&
+            data(row).reviewAdvised?.profileVersion !== undefined,
+        )
+        .map((row) => String(data(row).contentId)),
+    );
+    if (additive) {
+      for (const booking of reviewableBookings([...contents, ...linked])) {
+        const d = data(booking);
+        const content = byId.get(d.contentId);
+        if (
+          !content ||
+          (data(content).profileVersion !== existing.version &&
+            !previouslyProtected.has(content.id))
+        )
+          continue;
+        await adviseBookingReview(tx, scope, booking, BOOKING_PROFILE_REVIEW, {
+          profileVersion: data(content).profileVersion,
+        });
+        protectedContents.add(content.id);
+      }
+    }
+    for (const content of contents) {
       const c = data(content);
-      if (c.profileVersion !== existing.version) continue;
+      if (
+        protectedContents.has(content.id) ||
+        (c.profileVersion !== existing.version &&
+          !previouslyProtected.has(content.id))
+      )
+        continue;
       if (!closedDraftStatus(c))
         await update(tx, scope, content, {
           ...c,
@@ -197,6 +298,7 @@ export async function saveMarketingProfile(
         });
       await invalidateContent(tx, scope, content.id);
     }
+  }
   await audit(tx, scope, "marketing_profile.save", saved.id, { version });
   return saved;
 }
@@ -206,10 +308,19 @@ export async function assertCampaignContext(
   scope: Scope,
   input: Record<string, unknown>,
   at = new Date(),
+  bookingReview?: BookingReview,
 ) {
+  const approvedProfileVersion = bookingReview?.profileVersion;
   const profile = await currentMarketingProfile(tx, scope);
   if (!profile) throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
-  if (input.profileVersion !== profile.version)
+  if (
+    input.profileVersion !== profile.version &&
+    !(
+      approvedProfileVersion !== undefined &&
+      approvedProfileVersion === input.profileVersion &&
+      (await compatibleBookingProfile(tx, scope, approvedProfileVersion))
+    )
+  )
     throw new DomainError("MARKETING_PROFILE_VERSION_REQUIRED", 409);
   if (input.campaignType !== "product" && input.campaignType !== "presale")
     throw new DomainError("CAMPAIGN_TYPE_REQUIRED", 409);
@@ -237,8 +348,12 @@ export async function assertCampaignContext(
   );
   if (!link) throw new DomainError("TARGET_URL_NOT_OFFICIAL", 409);
   const fact = data(await entity(tx, scope, "facts", link.factId));
+  const linkNeedsEditorialReview =
+    bookingReview?.evidenceVersion !== undefined &&
+    fact.status === "candidate" &&
+    fact.reviewReason === "source_changed";
   if (
-    fact.status !== "verified" ||
+    (fact.status !== "verified" && !linkNeedsEditorialReview) ||
     fact.publicUse !== true ||
     Date.parse(fact.validFrom) > at.valueOf() ||
     (fact.validUntil && Date.parse(fact.validUntil) <= at.valueOf()) ||
@@ -308,17 +423,26 @@ export async function assertContentCampaignContext(
   tx: DbTx,
   scope: Scope,
   input: Record<string, any>,
+  at = new Date(),
+  bookingReview?: BookingReview,
 ) {
+  const approvedProfileVersion = bookingReview?.profileVersion;
   if (!input.missionId) throw new DomainError("CAMPAIGN_MISSION_REQUIRED", 409);
   const mission = await entity(tx, scope, "missions", input.missionId);
   const m = data(mission);
-  const profile = await assertCampaignContext(tx, scope, {
-    campaignType: input.campaignType ?? m.campaignType,
-    profileVersion: input.profileVersion ?? m.profileVersion,
-    targetAction: m.targetAction,
-    targetUrl: m.targetUrl,
-    language: m.language,
-  });
+  const profile = await assertCampaignContext(
+    tx,
+    scope,
+    {
+      campaignType: input.campaignType ?? m.campaignType,
+      profileVersion: input.profileVersion ?? m.profileVersion,
+      targetAction: m.targetAction,
+      targetUrl: m.targetUrl,
+      language: m.language,
+    },
+    at,
+    bookingReview,
+  );
   if (
     input.campaignType !== m.campaignType ||
     input.profileVersion !== m.profileVersion
@@ -326,7 +450,11 @@ export async function assertContentCampaignContext(
     throw new DomainError("CONTENT_CAMPAIGN_CONTEXT_MISMATCH", 409);
   if (!m.channels.includes(input.channel) || m.contentType !== input.type)
     throw new DomainError("MISSION_SCOPE_NOT_ALLOWED", 409);
-  const profileData = marketingProfile.parse(profile.data);
+  const profileData =
+    (approvedProfileVersion === undefined
+      ? null
+      : await compatibleBookingProfile(tx, scope, approvedProfileVersion)) ??
+    marketingProfile.parse(profile.data);
   if (input.targetUrl !== m.targetUrl)
     throw new DomainError("CONTENT_TARGET_URL_MISMATCH", 409);
   if (input.assetId) {
@@ -437,6 +565,7 @@ export async function profileGuardrailProblems(
   scope: Scope,
   content: Record<string, any>,
   at = new Date(),
+  bookingReview?: BookingReview,
 ) {
   const problems: string[] = [];
   // Historical deterministic fixtures are preserved read-only. New human and
@@ -448,7 +577,13 @@ export async function profileGuardrailProblems(
     return problems;
   let context: Awaited<ReturnType<typeof assertContentCampaignContext>>;
   try {
-    context = await assertContentCampaignContext(tx, scope, content);
+    context = await assertContentCampaignContext(
+      tx,
+      scope,
+      content,
+      at,
+      bookingReview,
+    );
   } catch (error) {
     if (error instanceof DomainError) return [error.message];
     throw error;

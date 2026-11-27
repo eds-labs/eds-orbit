@@ -28,6 +28,8 @@ export const marketingActionPermissions = actionPermissions("marketing", {
     "reject-content",
     "resume-live-draft-batch",
     "resume-paused-publications",
+    "prepare-publication-recovery",
+    "release-publication-recovery",
     "slack-configure",
     "slack-digest",
     "start-approved-live-draft-batch",

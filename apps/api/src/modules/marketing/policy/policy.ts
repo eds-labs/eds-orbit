@@ -23,7 +23,11 @@ import {
   refuseClosedContent,
 } from "../pipeline/content-decisions.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
-import { profileGuardrailProblems } from "../brand/marketing-profile.ts";
+import {
+  compatibleBookingProfile,
+  profileGuardrailProblems,
+} from "../brand/marketing-profile.ts";
+import type { BookingReview } from "../publishing/booking-review.ts";
 import {
   channelLimitExceeded,
   finalPostText,
@@ -56,6 +60,7 @@ import {
   type Scope,
 } from "../../../../../../packages/schemas/src/index.ts";
 import {
+  EDITORIAL_EVIDENCE_CHANGES,
   validateEvidence,
   validateActiveIndexEvaluation,
 } from "../../../../../../packages/knowledge/src/index.ts";
@@ -211,6 +216,7 @@ export async function assignmentHumanApprovalBlocker(
   contentId: string,
   at = new Date(),
   publicationId?: string,
+  checkedPackage?: Awaited<ReturnType<typeof packageFor>>,
 ) {
   const content = await entity(tx, scope, "content", contentId);
   const assignment = await contentAssignment(tx, scope, data(content));
@@ -225,7 +231,7 @@ export async function assignmentHumanApprovalBlocker(
     if (planRefusal) return planRefusal;
   }
   if (!requiresHuman(data(content), assignment)) return null;
-  const pkg = await packageFor(tx, scope, contentId);
+  const pkg = checkedPackage ?? (await packageFor(tx, scope, contentId));
   if (!assignment || !confirmedHash(data(assignment)))
     return ASSIGNMENT_HUMAN_APPROVAL_REQUIRED;
   await assertModuleEnabled(tx, scope, "marketing");
@@ -272,12 +278,14 @@ export async function checkClaims(
   scope: Scope,
   contentId: string,
   at = new Date(),
+  bookingReview?: BookingReview,
 ) {
   const content = await entity(tx, scope, "content", contentId),
     v = data(content),
     problems: string[] = [];
   if (
-    requiresHuman(v, await contentAssignment(tx, scope, v)) &&
+    (v.recoveredFromPublicationId ||
+      requiresHuman(v, await contentAssignment(tx, scope, v))) &&
     v.humanReviewedBodyHash !== hash(v.body)
   )
     problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
@@ -332,7 +340,18 @@ export async function checkClaims(
     }
     if (!v.body.includes(claim.text)) problems.push("CLAIM_NOT_IN_CONTENT");
     if (claim.factId) {
-      const fact = await entity(tx, scope, "facts", claim.factId);
+      const fact = await tx.entity.findFirst({
+        where: {
+          id: claim.factId,
+          kind: "facts",
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+        },
+      });
+      if (!fact) {
+        problems.push("FACT_NOT_VERIFIED", "FACT_OUTSIDE_EVIDENCE");
+        continue;
+      }
       const f = data(fact);
       if (
         f.status !== "verified" ||
@@ -403,7 +422,15 @@ export async function checkClaims(
     )
   )
     problems.push("CHANNEL_LIMIT_EXCEEDED");
-  problems.push(...(await profileGuardrailProblems(tx, scope, v, at)));
+  problems.push(
+    ...(await profileGuardrailProblems(
+      tx,
+      scope,
+      v,
+      at,
+      bookingReview,
+    )),
+  );
   return { valid: problems.length === 0, problems: [...new Set(problems)] };
 }
 /** The same facts may be repeated on a channel after this many days. */
@@ -470,9 +497,13 @@ function missionMayPublish(
   mission: Record<string, any>,
   action: "publish_test" | "publish_live",
   contentId: string,
+  contentVersion: number,
 ) {
   return (
     (mission.allowedActions ?? []).includes(action) &&
+    (!mission.recoveryContentId ||
+      (mission.recoveryContentId === contentId &&
+        mission.recoveryContentVersion === contentVersion)) &&
     (!mission.assignmentRunId ||
       mission.publishAuthorizedBy?.contentId === contentId)
   );
@@ -541,6 +572,95 @@ async function ownerApprovedBooking(
   return false;
 }
 
+const EVIDENCE_REVISION_BLOCKERS = new Set([
+  "EVIDENCE_INVALID",
+  "FACT_NOT_VERIFIED",
+  "FACT_VALUE_MISMATCH",
+  "FACT_OUTSIDE_EVIDENCE",
+  "QUOTE_NOT_SUPPORTED",
+]);
+
+/** Resolve the exact package approved at booking time. All other package inputs stay live. */
+async function checkedBookingRevision(
+  tx: DbTx,
+  scope: Scope,
+  pkg: Awaited<ReturnType<typeof packageFor>>,
+  publicationId: string,
+  at: Date,
+) {
+  const booking = await tx.entity.findFirst({
+    where: {
+      id: publicationId,
+      kind: "publications",
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+    },
+  });
+  const b = data(booking);
+  const marker = b.reviewAdvised as BookingReview | undefined;
+  if (
+    !marker ||
+    b.contentId !== pkg.content.id ||
+    b.contentVersion !== pkg.content.version ||
+    b.evidenceId !== pkg.evidence.id
+  )
+    return null;
+
+  const packageData = { ...pkg.packageData };
+  if (marker.profileVersion !== undefined) {
+    if (!(await compatibleBookingProfile(tx, scope, marker.profileVersion)))
+      return null;
+    if ("profileVersion" in packageData)
+      packageData.profileVersion = marker.profileVersion;
+  }
+  if (marker.evidenceVersion !== undefined) {
+    const prior = await tx.entityVersion.findFirst({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        entityId: pkg.evidence.id,
+        version: marker.evidenceVersion,
+      },
+    });
+    if (!prior) return null;
+    const {
+      status: currentStatus,
+      gaps: currentGaps,
+      ...current
+    } = data(pkg.evidence);
+    const {
+      status: originalStatus,
+      gaps: originalGaps,
+      ...original
+    } = data(prior);
+    const addedGaps = (currentGaps ?? []).filter(
+      (gap: string) => !(originalGaps ?? []).includes(gap),
+    );
+    if (
+      originalStatus !== "ready" ||
+      currentStatus !== "invalidated" ||
+      hash(current) !== hash(original) ||
+      !addedGaps.length ||
+      addedGaps.some(
+        (gap: string) =>
+          !(EDITORIAL_EVIDENCE_CHANGES as readonly string[]).includes(gap),
+      ) ||
+      !(
+        await validateEvidence(tx, scope, pkg.evidence.id, at, {
+          approvedEditorialRevision: true,
+        })
+      ).valid
+    )
+      return null;
+    packageData.evidenceVersion = marker.evidenceVersion;
+    packageData.evidenceHash = hash(prior.data);
+  }
+  const candidate = { ...pkg, packageData, packageHash: hash(packageData) };
+  return (await ownerApprovedBooking(tx, scope, publicationId, candidate, at))
+    ? { pkg: candidate, marker }
+    : null;
+}
+
 export async function preflight(
   tx: DbTx,
   scope: Scope,
@@ -557,9 +677,20 @@ export async function preflight(
     test: true,
   },
 ) {
-  const at = options.at ?? new Date(),
-    pkg = await packageFor(tx, scope, contentId),
-    c = data(pkg.content);
+  const at = options.at ?? new Date();
+  const current = await packageFor(tx, scope, contentId);
+  const approvedRevision =
+    !options.test && options.publicationId
+      ? await checkedBookingRevision(
+          tx,
+          scope,
+          current,
+          options.publicationId,
+          at,
+        )
+      : null;
+  const pkg = approvedRevision?.pkg ?? current;
+  const c = data(pkg.content);
   // On Social (S9) Social's checks replace the Postiz write checks.
   const onSocial = "publishingBackend" in pkg.packageData;
   const blockers: string[] = [];
@@ -571,6 +702,7 @@ export async function preflight(
     contentId,
     at,
     options.publicationId,
+    pkg,
   );
   if (humanBlocker) blockers.push(humanBlocker);
   let released: boolean | undefined;
@@ -613,7 +745,7 @@ export async function preflight(
     if (
       options.test &&
       m.allowedActions &&
-      !missionMayPublish(m, "publish_test", contentId) &&
+      !missionMayPublish(m, "publish_test", contentId, pkg.content.version) &&
       !(await vetoReleased())
     )
       blockers.push("MISSION_TEST_WRITE_NOT_AUTHORIZED");
@@ -779,8 +911,18 @@ export async function preflight(
         blockers.push("APPROVAL_REQUIRED");
     }
   }
-  const claims = await checkClaims(tx, scope, contentId, at);
-  blockers.push(...claims.problems);
+  const claims = await checkClaims(
+    tx,
+    scope,
+    contentId,
+    at,
+    approvedRevision?.marker,
+  );
+  const claimBlockers =
+    approvedRevision?.marker.evidenceVersion === undefined
+      ? claims.problems
+      : claims.problems.filter((code) => !EVIDENCE_REVISION_BLOCKERS.has(code));
+  blockers.push(...claimBlockers);
   if (c.assetId) {
     const asset = await entity(tx, scope, "assets", c.assetId);
     if (
@@ -842,7 +984,7 @@ export async function preflight(
       !(
         options.publicationId &&
         c.type === "social" &&
-        claims.problems.length === 0 &&
+        claimBlockers.length === 0 &&
         liveEvaluation.reasons.length === 1 &&
         liveEvaluation.reasons[0] === "INDEX_EVALUATION_CORPUS_CHANGED" &&
         (await ownerApprovedBooking(tx, scope, options.publicationId, pkg, at))
@@ -856,7 +998,12 @@ export async function preflight(
     if (c.missionId) {
       const mission = await entity(tx, scope, "missions", c.missionId);
       if (
-        !missionMayPublish(data(mission), "publish_live", contentId) &&
+        !missionMayPublish(
+          data(mission),
+          "publish_live",
+          contentId,
+          pkg.content.version,
+        ) &&
         !(await vetoReleased())
       )
         blockers.push("MISSION_LIVE_WRITE_NOT_AUTHORIZED");

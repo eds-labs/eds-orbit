@@ -93,7 +93,7 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
 });
 import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
-import { create, data, list, update } from "../src/shared.ts";
+import { create, data, entity, list, update } from "../src/shared.ts";
 import { userScoped } from "../src/platform/tenancy/scope.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
@@ -119,11 +119,15 @@ import {
 import * as policyModule from "../src/modules/marketing/policy/policy.ts";
 import * as notificationsModule from "../src/modules/marketing/agents/notifications.ts";
 import { marketingNotifications } from "../src/modules/marketing/agents/notification-messages.ts";
+import { ingest, setFact, withdrawFact } from "../src/platform/knowledge/engine.ts";
+import { saveMarketingProfile } from "../src/modules/marketing/brand/marketing-profile.ts";
+import { preparePublicationRecovery, releasePublicationRecovery } from "../src/modules/marketing/pipeline/publication-recovery.ts";
 import { invalidateContent } from "../src/modules/marketing/pipeline/content-invalidation.ts";
 import { marketingJobs } from "../src/modules/marketing/jobs.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
-import { claimPublication as claimMarketingPublication } from "../src/modules/marketing/pipeline/workflow.ts";
+import { claimPublication as claimMarketingPublication, reviewContent } from "../src/modules/marketing/pipeline/workflow.ts";
 import { assignmentDetail } from "../src/modules/marketing/agents/assignment-detail.ts";
+import { cancelOriginPost } from "../src/modules/social/contract.ts";
 import { calendarItems } from "../src/modules/social/calendar/calendar.ts";
 import { getPost, listPosts, updatePost } from "../src/modules/social/posts/posts.ts";
 import { setSocialFetchForTests } from "../src/modules/social/accounts/http.ts";
@@ -1115,6 +1119,342 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
           blockers: expect.arrayContaining(["EVIDENCE_INVALID"]),
         });
         expect(await dispatchJobs()).toHaveLength(0);
+      });
+
+      const editorialFactChange = async (replace: boolean) => {
+        const { owner, betaFactId, sourceId } = daily.project;
+        await daily.h.run(async (tx) => {
+          const fact = data(await entity(tx, owner, "facts", betaFactId));
+          await setFact(tx, owner, {
+            ...(replace ? { id: betaFactId } : {}),
+            key: replace ? fact.key : "beta.new_separate_fact",
+            value: replace
+              ? "available for product teams by invitation"
+              : "Beta offers a feedback form.",
+            valueType: "text",
+            language: "en",
+            sourceId,
+            status: "verified",
+            publicUse: true,
+            modelUse: true,
+            validFrom: fact.validFrom,
+            validUntil: fact.validUntil,
+          });
+        });
+      };
+
+      it.each([true, false])(
+        "keeps the owner booking after an editorial fact change (replaces fact: %s) and a profile addition",
+        async (replace) => {
+          const { pubs, slot } = await released();
+          const { owner } = daily.project;
+          const worker = daily.h.worker();
+          await syncSocialHolds(worker);
+          await daily.h.run(async (tx) => {
+            const current = await tx.projectMarketingProfile.findFirstOrThrow({
+              where: { projectId: owner.projectId },
+            });
+            const profile = data(current);
+            await saveMarketingProfile(
+              tx,
+              owner,
+              {
+                ...profile,
+                primaryCtas: [
+                  ...profile.primaryCtas,
+                  "See the product overview.",
+                ],
+              },
+              current.version,
+            );
+          });
+          await editorialFactChange(replace);
+          const current = await daily.publications();
+          expect(current).toHaveLength(2);
+          for (const post of current) {
+            const original = pubs.find((p) => p.id === post.id)!;
+            expect(post).toMatchObject({
+              status: "intent_created",
+              scheduledAt: original.scheduledAt,
+              contentVersion: original.contentVersion,
+              packageHash: original.packageHash,
+              reviewAdvised: {
+                reasons: ["BOOKING_PROFILE_REVIEW", "BOOKING_KNOWLEDGE_REVIEW"],
+              },
+            });
+          }
+          for (const reason of await risks())
+            expect(reason).toEqual([
+              "BOOKING_KNOWLEDGE_REVIEW",
+              "BOOKING_PROFILE_REVIEW",
+            ]);
+          const latest = await daily.h.run((tx) =>
+            policyModule.preflight(tx, owner, pubs[0]!.contentId, {
+              test: false,
+              at: slot,
+            }),
+          );
+          expect(latest.allowed).toBe(false);
+          expect(latest.blockers).toContain("EVIDENCE_INVALID");
+          vi.stubEnv("ORBIT_RELEASED_POST_WATCH", "true");
+          vi.stubEnv("ORBIT_NOTIFICATIONS", "true");
+          await runReleasedPostWatch(worker);
+          const notices = await userScoped(owner, (tx) =>
+            tx.notification.findMany({
+              where: { kind: "marketing_post_at_risk" },
+            }),
+          );
+          expect(notices).toHaveLength(1);
+          expect(notices[0]!.title).toBe(
+            "Review suggested for scheduled posts",
+          );
+
+          await syncSocialHolds(worker);
+          expect(
+            (await daily.socialPosts()).map((post) => post.status),
+          ).toEqual(["scheduled", "scheduled"]);
+          atMinutes(slot, 1);
+          for (const post of pubs) {
+            await dispatchPublication(worker, post.id);
+            await dispatchPublication(worker, post.id);
+          }
+          expect(
+            (await daily.publications()).map((post) => post.status),
+          ).toEqual(["scheduled_remote", "scheduled_remote"]);
+          expect(await dispatchJobs()).toHaveLength(2);
+        },
+      );
+
+      it("leaves a review advisory after the cited source is reimported", async () => {
+        const { pubs, slot } = await released();
+        const { owner, sourceId, betaFactId } = daily.project;
+        const worker = daily.h.worker();
+        await syncSocialHolds(worker);
+        await daily.h.run(async (tx) => {
+          await ingest(tx, owner, {
+            sourceId,
+            externalId: "synthetic-beta-access",
+            title: "Synthetic beta access",
+            text: "Beta access remains open for product teams. The source has a new heading.",
+            mimeType: "text/plain",
+            language: "en",
+          });
+          expect(
+            data(await entity(tx, owner, "facts", betaFactId)),
+          ).toMatchObject({
+            status: "candidate",
+            reviewReason: "source_changed",
+          });
+        });
+        expect(await risks()).toEqual([
+          ["BOOKING_KNOWLEDGE_REVIEW"],
+          ["BOOKING_KNOWLEDGE_REVIEW"],
+        ]);
+        await syncSocialHolds(worker);
+        expect((await daily.socialPosts()).map((post) => post.status)).toEqual([
+          "scheduled",
+          "scheduled",
+        ]);
+        atMinutes(slot, 1);
+        for (const post of pubs) await dispatchPublication(worker, post.id);
+        expect(await dispatchJobs()).toHaveLength(2);
+      });
+
+      it("leaves a pending Social handoff in place after an editorial update", async () => {
+        const { pubs, slot } = await released();
+        const worker = daily.h.worker();
+        await syncSocialHolds(worker);
+        atMinutes(slot, 1);
+        for (const post of pubs) await dispatchPublication(worker, post.id);
+        await editorialFactChange(true);
+        for (const post of await daily.publications())
+          expect(post).toMatchObject({
+            status: "scheduled_remote",
+            reviewAdvised: { reasons: ["BOOKING_KNOWLEDGE_REVIEW"] },
+          });
+        expect(await dispatchJobs()).toHaveLength(2);
+      });
+
+      it("takes back an editorial booking after the fact is explicitly withdrawn", async () => {
+        const { pubs, slot } = await released();
+        const { owner, betaFactId } = daily.project;
+        const worker = daily.h.worker();
+        await syncSocialHolds(worker);
+        await editorialFactChange(true);
+        await daily.h.run(async (tx) => {
+          const fact = await entity(tx, owner, "facts", betaFactId);
+          await withdrawFact(tx, owner, fact.id, fact.version);
+        });
+        await syncSocialHolds(worker);
+        expect((await daily.socialPosts()).map((post) => post.status)).toEqual([
+          "canceled",
+          "canceled",
+        ]);
+        atMinutes(slot, 1);
+        for (const post of pubs) await dispatchPublication(worker, post.id);
+        expect(await dispatchJobs()).toHaveLength(0);
+      });
+
+      it("opens a blocked post for fresh owner review and books exactly one replacement", async () => {
+        const { pubs, slot } = await released();
+        const { owner, editor } = daily.project;
+        const worker = daily.h.worker();
+        await syncSocialHolds(worker);
+        const original = pubs[0]!;
+        await daily.h.run((tx) =>
+          invalidateContent(tx, owner, original.contentId),
+        );
+        const row = await daily.h.run((tx) =>
+          entity(tx, owner, "publications", original.id),
+        );
+        const request = { publicationId: row.id, version: row.version };
+        await expect(
+          daily.h.run((tx) => preparePublicationRecovery(tx, editor, request)),
+        ).rejects.toThrow("OWNER_REQUIRED");
+        const draft = await daily.h.run((tx) =>
+          preparePublicationRecovery(tx, owner, request),
+        );
+        const again = await daily.h.run((tx) =>
+          preparePublicationRecovery(tx, owner, request),
+        );
+        expect(again.id).toBe(draft.id);
+        expect(draft.id).toBe(original.contentId);
+        expect(data(draft)).toMatchObject({
+          status: "needs_review",
+          recoveredFromPublicationId: original.id,
+        });
+        expect(data(draft).assignmentRunId).toBeUndefined();
+        expect(data(draft).evidenceId).not.toBe(original.evidenceId);
+        expect(await dispatchJobs()).toHaveLength(0);
+        await expect(
+          daily.h.run((tx) =>
+            releasePublicationRecovery(tx, owner, {
+              contentId: draft.id,
+              version: draft.version,
+            }),
+          ),
+        ).rejects.toThrow("HUMAN_CONTENT_REVIEW_REQUIRED");
+
+        const reviewed = await daily.h.run((tx) =>
+          reviewContent(tx, owner, draft.id, draft.version, true),
+        );
+        expect(data(reviewed).review).toMatchObject({ valid: true });
+        const input = { contentId: reviewed.id, version: reviewed.version };
+        const manualId = randomUUID();
+        await daily.h.run(async (tx) => {
+          const tenant = {
+            workspaceId: owner.workspaceId,
+            projectId: owner.projectId,
+          };
+          await tx.socialPost.create({
+            data: {
+              ...tenant,
+              id: manualId,
+              status: "scheduled",
+              scheduledAt: slot,
+              baseText: "Manual calendar booking",
+              baseMedia: [],
+              scheduleTimezone: "UTC",
+              createdBy: owner.userId,
+            },
+          });
+          await tx.socialPostVariant.create({
+            data: {
+              ...tenant,
+              id: randomUUID(),
+              postId: manualId,
+              accountId: original.channel.replace("social:", ""),
+              body: "Manual calendar booking",
+              contentHash: "a".repeat(64),
+            },
+          });
+        });
+        await expect(
+          daily.h.run((tx) => releasePublicationRecovery(tx, owner, input)),
+        ).rejects.toThrow("RECOVERY_SLOT_OCCUPIED");
+        expect(await dispatchJobs()).toHaveLength(0);
+        await daily.h.run(async (tx) => {
+          const manual = await tx.socialPost.findUniqueOrThrow({
+            where: { id: manualId },
+          });
+          expect(manual.status).toBe("scheduled");
+          await tx.socialPost.update({
+            where: { id: manualId },
+            data: { status: "canceled" },
+          });
+        });
+        const fresh = await daily.h.run((tx) =>
+          releasePublicationRecovery(tx, owner, input),
+        );
+        const retry = await daily.h.run((tx) =>
+          releasePublicationRecovery(tx, owner, input),
+        );
+        expect(retry.id).toBe(fresh.id);
+        expect(fresh.id).not.toBe(original.id);
+        expect(data(fresh)).toMatchObject({
+          status: "intent_created",
+          scheduledAt: slot.toISOString(),
+        });
+        await syncSocialHolds(worker);
+        atMinutes(slot, 1);
+        await dispatchPublication(worker, original.id);
+        await dispatchPublication(worker, fresh.id);
+        await dispatchPublication(worker, fresh.id);
+        expect(await dispatchJobs()).toHaveLength(1);
+      });
+
+      it("reopens a canceled Social handoff only after its cancellation is confirmed", async () => {
+        const { pubs, slot } = await released();
+        const { owner } = daily.project;
+        const worker = daily.h.worker();
+        const pub = pubs[0]!;
+        await syncSocialHolds(worker);
+        atMinutes(slot, 1);
+        await dispatchPublication(worker, pub.id);
+        const sentToSocial = await daily.h.run((tx) =>
+          entity(tx, owner, "publications", pub.id),
+        );
+        const attempt = (version: number) =>
+          daily.h.run((tx) =>
+            preparePublicationRecovery(tx, owner, {
+              publicationId: pub.id,
+              version,
+            }),
+          );
+        await expect(attempt(sentToSocial.version)).rejects.toThrow(
+          "PUBLICATION_RECOVERY_NOT_AVAILABLE",
+        );
+        await daily.h.run(async (tx) => {
+          expect(
+            await cancelOriginPost(
+              tx,
+              owner,
+              data(sentToSocial).remoteId,
+              "TEST_OWNER_STOP",
+            ),
+          ).toBe("canceled");
+        });
+        await reconcilePublication(worker, pub.id);
+        const canceled = await daily.h.run((tx) =>
+          entity(tx, owner, "publications", pub.id),
+        );
+        const recovered = await attempt(canceled.version);
+        expect(data(recovered)).toMatchObject({
+          recoveredFromPublicationId: pub.id,
+          status: "needs_review",
+        });
+        expect(data(recovered).scheduledAt).toBeUndefined();
+        const reviewed = await daily.h.run((tx) =>
+          reviewContent(tx, owner, recovered.id, recovered.version, true),
+        );
+        await expect(
+          daily.h.run((tx) =>
+            releasePublicationRecovery(tx, owner, {
+              contentId: reviewed.id,
+              version: reviewed.version,
+            }),
+          ),
+        ).rejects.toThrow("INVALID_SCHEDULE");
       });
 
       it("keeps the index gate for a booking without an owner decision", async () => {

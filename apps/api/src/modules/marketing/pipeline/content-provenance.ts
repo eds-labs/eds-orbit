@@ -10,6 +10,10 @@ export function withGenerationProvenance(
 ) {
   return {
     ...next,
+    ...(previous.recoveredFromPublicationId &&
+    previous.missionId === next.missionId
+      ? { recoveredFromPublicationId: previous.recoveredFromPublicationId }
+      : {}),
     ...Object.fromEntries(
       generationProvenance
         .filter((key) => previous[key] !== undefined)
