@@ -1,10 +1,17 @@
 import { z } from "zod";
 import { ConnectorError, jsonTransport, type HttpOptions } from "./http.ts";
-export const matomoMethods = [
+export const matomoGoogleSearchReport =
+  "SearchEngineKeywordsPerformance.getKeywordsGoogleWeb";
+export const matomoImportMethods = [
   "VisitsSummary.get",
   "Actions.getPageUrls",
+  "Actions.get",
   "Referrers.getCampaigns",
   "Goals.get",
+  matomoGoogleSearchReport,
+] as const;
+export const matomoMethods = [
+  ...matomoImportMethods,
   "Goals.getGoals",
 ] as const;
 export type MatomoReportInput = {
@@ -70,6 +77,8 @@ export function createMatomoClient(
       });
       if (input.goalId !== undefined) body.set("idGoal", String(input.goalId));
       if (input.method === "Actions.getPageUrls") body.set("flat", "1");
+      if (input.method === matomoGoogleSearchReport)
+        body.set("showColumns", "nb_clicks,nb_impressions");
       const result = await call("index.php", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },

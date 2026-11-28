@@ -1,3 +1,6 @@
+import { readMatomoTrend } from "./analytics/matomo.ts";
+import { assertModuleEnabled } from "../../platform/modules/enforcement.ts";
+import { moduleScope } from "../../platform/tenancy/module-roles.ts";
 import { marketingReportRoutes } from "./analytics/report-routes.ts";
 import { prepareContentNovelty, commitTopic } from "./agents/novelty.ts";
 import { marketingPlanRoutes } from "./plans/routes.ts";
@@ -97,6 +100,17 @@ export const marketingRoutes: RoutesContribution = (context) => {
   marketingPlanRoutes(context);
   marketingReportRoutes(context);
   creativeRoutes(context);
+  app.get("/api/projects/:projectId/marketing/matomo-trend", async (req) => {
+    const { projectId } = z.object({ projectId: schemas.id }).parse(req.params);
+    const scope = moduleScope(
+      await scopeFor(auth, req, projectId),
+      "marketing",
+    );
+    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      await assertModuleEnabled(tx, scope, "marketing");
+      return readMatomoTrend(tx, scope);
+    });
+  });
   app.post(
     "/api/slack/:workspaceId/:projectId/interactions",
     async (req, reply) => {

@@ -8,8 +8,11 @@ import {
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   createMatomoClient,
+  matomoGoogleSearchReport,
+  matomoImportMethods,
   type MatomoReportInput,
 } from "../../../../../../packages/connectors/src/matomo.ts";
+import { ConnectorError } from "../../../../../../packages/connectors/src/http.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
@@ -50,12 +53,7 @@ export const matomoImportInput = z
     date: isoDate,
     siteTimezone: timezone,
     currency: z.string().regex(/^[A-Z]{3}$/),
-    method: z.enum([
-      "VisitsSummary.get",
-      "Referrers.getCampaigns",
-      "Actions.getPageUrls",
-      "Goals.get",
-    ]),
+    method: z.enum(matomoImportMethods),
     goalId: z.number().int().positive().optional(),
   })
   .strict()
@@ -118,6 +116,21 @@ function count(v: unknown) {
     throw new DomainError("INVALID_MATOMO_METRIC");
   return n;
 }
+function searchCounts(rows: unknown[]) {
+  const records = rows.map((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row))
+      throw new DomainError("INVALID_MATOMO_REPORT");
+    return row as Record<string, unknown>;
+  });
+  const sum = (field: string) => {
+    const counts = records.map((row) => count(row[field]));
+    if (!counts.length || counts.some((value) => value === null)) return null;
+    return count(
+      counts.reduce<number>((total, value) => total + (value ?? 0), 0),
+    );
+  };
+  return { nb_impressions: sum("nb_impressions"), nb_clicks: sum("nb_clicks") };
+}
 function moneyMicros(v: unknown) {
   if (v === undefined || v === null || v === "") return null;
   const raw = String(v);
@@ -164,19 +177,24 @@ export function normalizeMatomoReport(
     snapshot.siteTimezone !== input.siteTimezone
   )
     throw new DomainError("MATOMO_PROVENANCE_MISMATCH");
+  const search = input.method === matomoGoogleSearchReport;
   const table = ["Referrers.getCampaigns", "Actions.getPageUrls"].includes(
     input.method,
   );
   if (
-    table
+    table || search
       ? !Array.isArray(snapshot.data)
       : !snapshot.data ||
         typeof snapshot.data !== "object" ||
         Array.isArray(snapshot.data)
   )
     throw new DomainError("INVALID_MATOMO_REPORT");
-  const rows = table ? (snapshot.data as unknown[]) : [snapshot.data];
-  if (rows.length > 1000) throw new DomainError("MATOMO_REPORT_LIMIT");
+  const reportRows = Array.isArray(snapshot.data)
+    ? snapshot.data
+    : [snapshot.data];
+  if (reportRows.length > 1000) throw new DomainError("MATOMO_REPORT_LIMIT");
+  const rows =
+    search && reportRows.length ? [searchCounts(reportRows)] : reportRows;
   const seen = new Set<string>();
   return rows.map((value) => {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -205,6 +223,8 @@ export function normalizeMatomoReport(
     if (seen.has(externalId)) throw new DomainError("DUPLICATE_MATOMO_ROW");
     seen.add(externalId);
     const sessions = count(row.nb_visits),
+      impressions = search ? count(row.nb_impressions) : null,
+      sampleSize = search ? impressions : sessions,
       conversions =
         goalsConfigured === false ? null : count(row.nb_conversions);
     const metric = {
@@ -222,8 +242,11 @@ export function normalizeMatomoReport(
       currency: input.currency,
       currencyProvenance: "operator_supplied",
       timezoneProvenance: "operator_supplied",
-      impressions: null,
-      clicks: null,
+      impressions,
+      clicks: search ? count(row.nb_clicks) : null,
+      ...(input.method === "Actions.get"
+        ? { outlinkClicks: count(row.nb_outlinks) }
+        : {}),
       sessions,
       conversions,
       costMicros: null,
@@ -236,8 +259,8 @@ export function normalizeMatomoReport(
         input.method === "Actions.getPageUrls" ? row.nb_hits : row.nb_pageviews,
       ),
       uniqueVisitors: count(row.nb_uniq_visitors),
-      sampleSize: sessions ?? 0,
-      sampleSizeMissing: sessions === null,
+      sampleSize: sampleSize ?? 0,
+      sampleSizeMissing: sampleSize === null,
       goalsConfigured,
       synthetic: false,
       complete: snapshot.complete,
@@ -245,6 +268,11 @@ export function normalizeMatomoReport(
       limitations: [
         ...(!snapshot.complete
           ? ["Bounded provider report; completeness is not established."]
+          : []),
+        ...(search
+          ? [
+              "Google Web Search counts cover only the keyword rows Matomo returned.",
+            ]
           : []),
         ...(goalsConfigured === false
           ? ["No configured goal; conversions are unavailable."]
@@ -357,10 +385,21 @@ export async function importMatomoReport(
     siteTimezone: input.siteTimezone,
     ...(input.goalId ? { goalId: input.goalId } : {}),
   };
-  const snapshot = await client.report(request);
+  const readReport = (report: MatomoReportInput) =>
+    client.report(report).catch((error: unknown) => {
+      if (!(error instanceof ConnectorError)) throw error;
+      throw new DomainError(
+        report.method === matomoGoogleSearchReport &&
+          error.code === "REPORT_UNAVAILABLE"
+          ? "MATOMO_SEARCH_REPORT_UNAVAILABLE"
+          : "MATOMO_REPORT_UNAVAILABLE",
+        502,
+      );
+    });
+  const snapshot = await readReport(request);
   let goalsConfigured: boolean | null = null;
   if (input.method === "Goals.get") {
-    const goals = await client.report({
+    const goals = await readReport({
       ...request,
       method: "Goals.getGoals",
       goalId: undefined,
@@ -389,4 +428,63 @@ export async function importMatomoReport(
       throw new DomainError("CONNECTOR_CHANGED");
     return importMatomoSnapshot(tx, scope, input, snapshot, goalsConfigured);
   });
+}
+
+/** Keep high-volume campaign and page detail out of the website-wide trend. */
+export async function readMatomoTrend(tx: DbTx, scope: Scope) {
+  const rowLimit = 500;
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "metrics",
+      AND: [
+        { data: { path: ["source"], equals: "matomo" } },
+        { data: { path: ["synthetic"], equals: false } },
+        {
+          OR: [
+            "VisitsSummary.get",
+            "Actions.get",
+            matomoGoogleSearchReport,
+          ].map((method) => ({
+            data: { path: ["reportMethod"], equals: method },
+          })),
+        },
+      ],
+    },
+    select: { data: true },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: rowLimit + 1,
+  });
+  return {
+    items: rows.slice(0, rowLimit).map((row) => {
+      const {
+        accountId,
+        siteId,
+        date,
+        timezone,
+        currency,
+        reportMethod,
+        sessions,
+        pageviews,
+        outlinkClicks,
+        impressions,
+        clicks,
+      } = data(row);
+      return {
+        accountId,
+        siteId,
+        date,
+        timezone,
+        currency,
+        reportMethod,
+        sessions,
+        pageviews,
+        outlinkClicks,
+        impressions,
+        clicks,
+      };
+    }),
+    truncated: rows.length > rowLimit,
+  };
 }

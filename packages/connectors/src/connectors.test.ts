@@ -5,6 +5,7 @@ import {
   normalizePostizBaseUrl,
   postizProviderSettings,
   createMatomoClient,
+  matomoGoogleSearchReport,
   verifySlackInteraction,
   verifySlackRequest,
   importAdsCsv,
@@ -416,6 +417,28 @@ describe("Matomo read scope", () => {
     });
     expect(result.goalsConfigured).toBe(false);
     expect(result.siteTimezone).toBe("Europe/Berlin");
+  });
+  it("requests only Google web search counters through the Matomo reporting API", async () => {
+    const fetch = vi.fn(async (_url, init?: RequestInit) => {
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("method")).toBe(matomoGoogleSearchReport);
+      expect(body.get("showColumns")).toBe("nb_clicks,nb_impressions");
+      expect(body.get("filter_limit")).toBe("1000");
+      return json([{ nb_clicks: 0, nb_impressions: 2 }]);
+    });
+    const result = await createMatomoClient({
+      ...options,
+      allowedSiteIds: [3],
+      fetch,
+    }).report({
+      siteId: 3,
+      method: matomoGoogleSearchReport,
+      period: "day",
+      date: "2026-09-17",
+      siteTimezone: "UTC",
+    });
+    expect(result.data).toEqual([{ nb_clicks: 0, nb_impressions: 2 }]);
+    expect(result.complete).toBe(false);
   });
   it("blocks other sites and write methods without network", async () => {
     const fetch = vi.fn();

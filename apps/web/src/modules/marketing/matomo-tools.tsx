@@ -1,15 +1,23 @@
 "use client";
 // Matomo report import and schedule (WP2.3b), moved unchanged from components/operator-tools.tsx.
 import { useState } from "react";
-import { action, useMutation, value, when } from "@/lib/api";
+import { action, ApiError, useMutation, when } from "@/lib/api";
 import { Alert, Badge, Button, Modal } from "@/components/ui/primitives";
-import { DataForm, num, options, str } from "@/platform/ui/form";
+import { DataForm, num, str } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import { ResourceError, useCollection } from "@/platform/ui/collection";
+import {
+  googleSearchReport,
+  matomoReportLabel,
+  matomoReports,
+} from "./matomo-reports";
+
 export function MatomoImport() {
-  const { project, isOwner, refresh } = useWorkspace();
+  const { project, isOwner, refresh, locale } = useWorkspace();
+  const de = locale === "de";
   const connectors = useCollection("connectors");
   const [open, setOpen] = useState(false);
+  const [emptyImport, setEmptyImport] = useState(false);
   const mutation = useMutation(refresh);
   const available = (connectors.data?.items || []).filter(
     (c) => c.data.provider === "matomo" && c.data.status !== "revoked",
@@ -17,27 +25,46 @@ export function MatomoImport() {
   if (!isOwner) return null;
   return (
     <>
-      <Button variant="outline" onClick={() => setOpen(true)}>
-        Import from Matomo
+      <Button
+        variant="outline"
+        onClick={() => {
+          setEmptyImport(false);
+          mutation.clear();
+          setOpen(true);
+        }}
+      >
+        {de ? "Aus Matomo importieren" : "Import from Matomo"}
       </Button>
       {open && (
         <Modal
-          title="Import from Matomo"
-          description="An authenticated, aggregate-only read from your configured Matomo instance. Raw visitors, user IDs and search terms are not imported."
+          title={de ? "Aus Matomo importieren" : "Import from Matomo"}
+          description={
+            de
+              ? "Der Import speichert zusammengefasste Werte. Google-Suchdaten setzen eine in Matomo verbundene Search Console voraus."
+              : "The import stores aggregate metrics. Google Search data requires Search Console connected in Matomo."
+          }
           onClose={() => setOpen(false)}
         >
           <ResourceError error={connectors.error} retry={connectors.refresh} />
+          {emptyImport && (
+            <Alert kind="warning">
+              {de
+                ? "Matomo hat für diesen Bericht und Tag keine Zeilen geliefert. Prüfe bei der Google-Websuche die Search-Console-Verbindung oder wähle einen älteren Tag."
+                : "Matomo returned no rows for this report and day. For Google Web Search, check the Search Console connection or choose an earlier day."}
+            </Alert>
+          )}
           {!available.length ? (
             <Alert kind="warning">
-              Configure a Matomo connector first. Existing CSV and manual
-              measurements remain available.
+              {de
+                ? "Richte zuerst eine Matomo-Verbindung für dieses Projekt ein."
+                : "Set up a Matomo connection for this project first."}
             </Alert>
           ) : (
             <DataForm
               fields={[
                 {
                   name: "connectorId",
-                  label: "Matomo connection",
+                  label: de ? "Matomo-Verbindung" : "Matomo connection",
                   type: "select",
                   required: true,
                   options: available.map((c) => ({
@@ -47,80 +74,113 @@ export function MatomoImport() {
                 },
                 {
                   name: "siteId",
-                  label: "Matomo site ID",
+                  label: de ? "Matomo-Website-ID" : "Matomo site ID",
                   type: "number",
                   required: true,
                   min: 1,
+                  value:
+                    available.length === 1
+                      ? String(available[0]?.data.siteId ?? "")
+                      : "",
                 },
                 {
                   name: "date",
-                  label: "Report date (YYYY-MM-DD)",
+                  label: de ? "Berichtsdatum" : "Report date",
                   required: true,
                   max: 10,
-                  placeholder: "2026-09-01",
+                  placeholder: "YYYY-MM-DD",
+                  pattern: "[0-9]{4}-[0-9]{2}-[0-9]{2}",
                 },
                 {
                   name: "siteTimezone",
-                  label: "Matomo site timezone",
+                  label: de ? "Zeitzone der Website" : "Matomo site timezone",
                   value: project.timezone,
                   required: true,
-                  hint: "Must match the reporting site's timezone.",
+                  hint: de
+                    ? "Muss der Zeitzone der Website in Matomo entsprechen."
+                    : "Must match the reporting site’s timezone.",
                 },
                 {
                   name: "currency",
-                  label: "Reporting currency (ISO code)",
+                  label: de
+                    ? "Berichtswährung (ISO-Code)"
+                    : "Reporting currency (ISO code)",
                   required: true,
                   value: "EUR",
                   max: 3,
                 },
                 {
                   name: "method",
-                  label: "Aggregate report",
+                  label: de ? "Bericht" : "Aggregate report",
                   type: "select",
                   required: true,
                   value: "VisitsSummary.get",
-                  options: options([
-                    "VisitsSummary.get",
-                    "Referrers.getCampaigns",
-                    "Actions.getPageUrls",
-                    "Goals.get",
-                  ]),
+                  options: matomoReports.map((method) => ({
+                    value: method,
+                    label: matomoReportLabel(method, de),
+                  })),
                 },
                 {
                   name: "goalId",
-                  label: "Goal ID (optional)",
+                  label: de ? "Ziel-ID (optional)" : "Goal ID (optional)",
                   type: "number",
                   min: 1,
                   showWhen: { name: "method", values: ["Goals.get"] },
                 },
                 {
                   name: "confirm",
-                  label:
-                    "Read this aggregate report from the configured instance",
+                  label: de
+                    ? "Bericht aus der verbundenen Matomo-Instanz abrufen"
+                    : "Read this aggregate report from the configured instance",
                   type: "checkbox",
                   required: true,
                 },
               ]}
               pending={mutation.pending}
               error={mutation.error}
-              submitLabel="Read and import report"
-              onSubmit={(v) =>
-                mutation
+              submitLabel={de ? "Bericht abrufen" : "Read and import report"}
+              onSubmit={(v) => {
+                setEmptyImport(false);
+                return mutation
                   .run(() =>
-                    action(project.id, "import-matomo", {
-                      connectorId: str(v, "connectorId"),
-                      siteId: num(v, "siteId"),
-                      date: str(v, "date"),
-                      siteTimezone: str(v, "siteTimezone"),
-                      currency: str(v, "currency").toUpperCase(),
-                      method: str(v, "method"),
-                      ...(str(v, "goalId") ? { goalId: num(v, "goalId") } : {}),
+                    action<{ metricIds: string[] }>(
+                      project.id,
+                      "import-matomo",
+                      {
+                        connectorId: str(v, "connectorId"),
+                        siteId: num(v, "siteId"),
+                        date: str(v, "date"),
+                        siteTimezone: str(v, "siteTimezone"),
+                        currency: str(v, "currency").toUpperCase(),
+                        method: str(v, "method"),
+                        ...(str(v, "goalId")
+                          ? { goalId: num(v, "goalId") }
+                          : {}),
+                      },
+                    ).catch((error: unknown) => {
+                      if (error instanceof ApiError) {
+                        if (error.code === "MATOMO_SEARCH_REPORT_UNAVAILABLE")
+                          throw new Error(
+                            de
+                              ? "Matomo stellt den Bericht zur Google-Websuche nicht bereit. Prüfe das Matomo-Plugin, die Search Console und die Leserechte für diese Website."
+                              : "Matomo did not provide the Google Web Search report. Check the Matomo plugin, Search Console and read access for this site.",
+                          );
+                        if (error.code === "MATOMO_REPORT_UNAVAILABLE")
+                          throw new Error(
+                            de
+                              ? "Matomo konnte den Bericht nicht liefern. Prüfe die Verbindung und die Leserechte."
+                              : "Matomo could not provide the report. Check the connection and read access.",
+                          );
+                      }
+                      throw error;
                     }),
                   )
                   .then((r) => {
-                    if (r) setOpen(false);
-                  })
-              }
+                    if (!r) return;
+                    if (r.metricIds.length) setOpen(false);
+                    else setEmptyImport(true);
+                  });
+              }}
             />
           )}
         </Modal>
@@ -129,12 +189,6 @@ export function MatomoImport() {
   );
 }
 
-const matomoReports = [
-  "VisitsSummary.get",
-  "Referrers.getCampaigns",
-  "Actions.getPageUrls",
-  "Goals.get",
-] as const;
 export function MatomoSchedule() {
   const { project, isOwner, refresh, locale } = useWorkspace();
   const de = locale === "de";
@@ -162,8 +216,8 @@ export function MatomoSchedule() {
           title={de ? "Matomo automatisch abrufen" : "Scheduled Matomo import"}
           description={
             de
-              ? "Einmal speichern: Orbit liest danach zweimal täglich die Berichte von gestern und heute. Ein erneutes Lesen korrigiert Werte, es entstehen keine Doppelten."
-              : "Save once: Orbit then reads yesterday's and today's reports twice a day. Re-reading corrects values instead of duplicating them."
+              ? "Orbit liest zweimal täglich die Website-Berichte für gestern und heute. Für die Google-Websuche werden wegen der verzögerten Daten die letzten sieben abgeschlossenen Tage erneut gelesen."
+              : "Orbit reads yesterday’s and today’s website reports twice a day. For Google Web Search, it rechecks the last seven closed days to account for delayed data."
           }
           onClose={() => setOpen(false)}
         >
@@ -226,7 +280,13 @@ export function MatomoSchedule() {
                 },
                 ...matomoReports.map((method) => ({
                   name: method,
-                  label: method,
+                  label: matomoReportLabel(method, de),
+                  hint:
+                    method === googleSearchReport
+                      ? de
+                        ? "Erfordert die in Matomo verbundene Google Search Console."
+                        : "Requires Google Search Console connected in Matomo."
+                      : undefined,
                   type: "checkbox" as const,
                   value: methods.includes(method),
                 })),

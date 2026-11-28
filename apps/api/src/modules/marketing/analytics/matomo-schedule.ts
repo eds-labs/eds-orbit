@@ -15,6 +15,10 @@ import {
   list,
   update,
 } from "../../../shared.ts";
+import {
+  matomoGoogleSearchReport,
+  matomoImportMethods,
+} from "../../../../../../packages/connectors/src/matomo.ts";
 import { importMatomoReport } from "./matomo.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
 
@@ -31,16 +35,10 @@ export const matomoScheduleInput = z
     siteTimezone: z.string().min(1).max(80),
     currency: z.string().regex(/^[A-Z]{3}$/),
     methods: z
-      .array(
-        z.enum([
-          "VisitsSummary.get",
-          "Referrers.getCampaigns",
-          "Actions.getPageUrls",
-          "Goals.get",
-        ]),
-      )
+      .array(z.enum(matomoImportMethods))
       .min(1)
-      .max(4),
+      .max(matomoImportMethods.length)
+      .refine((methods) => new Set(methods).size === methods.length),
   })
   .strict();
 
@@ -108,10 +106,18 @@ function siteDay(at: Date, timezone: string) {
 /** Calendar subtraction, not 24 elapsed hours: DST can otherwise skip yesterday. */
 export function matomoImportDays(now: Date, zone: string) {
   const today = siteDay(now, zone);
-  const yesterday = new Date(Date.parse(today + "T00:00:00Z") - 86400000)
+  return [daysBefore(today, 1), today];
+}
+
+function daysBefore(day: string, days: number) {
+  return new Date(Date.parse(day + "T00:00:00Z") - days * 86400000)
     .toISOString()
     .slice(0, 10);
-  return [yesterday, today];
+}
+
+/** Search Console data can arrive several days after the reporting date. */
+export function matomoSearchImportDays(today: string) {
+  return Array.from({ length: 7 }, (_, index) => daysBefore(today, 7 - index));
 }
 
 /** Worker entry: runs due imports for one project; failures are recorded, never thrown. */
@@ -132,8 +138,12 @@ export async function runScheduledMatomo(scope: Scope, now = new Date()) {
   if (!due) return { ran: false };
   const days = matomoImportDays(now, due.siteTimezone);
   let failed = 0;
-  for (const date of days)
-    for (const method of due.methods) {
+  for (const method of due.methods) {
+    const dates =
+      method === matomoGoogleSearchReport
+        ? matomoSearchImportDays(days[1]!)
+        : days;
+    for (const date of dates) {
       try {
         await importMatomoReport(
           { ...scope, role: "owner" },
@@ -150,6 +160,7 @@ export async function runScheduledMatomo(scope: Scope, now = new Date()) {
         failed++;
       }
     }
+  }
   if (failed)
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       exception(tx, scope, "MATOMO_SCHEDULED_IMPORT_FAILED", due.connectorId),

@@ -4,6 +4,7 @@ import { data } from "../../../shared.ts";
 export const METRIC_COUNTERS = [
   "sessions",
   "pageviews",
+  "outlinkClicks",
   "clicks",
   "impressions",
   "conversions",

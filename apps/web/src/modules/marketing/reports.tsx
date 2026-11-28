@@ -1,4 +1,5 @@
 "use client";
+import { googleSearchReport, matomoReportLabel } from "./matomo-reports";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { AppLink } from "@/platform/ui/app-link";
@@ -14,6 +15,8 @@ type Group = {
   currency: string | null;
   timezone: string | null;
   sessions: number | null;
+  pageviews?: number | null;
+  outlinkClicks?: number | null;
   clicks: number | null;
   impressions: number | null;
   conversions: number | null;
@@ -60,15 +63,36 @@ export function ReportEvidence({
         {rows.map((g, index) => (
           <li key={index}>
             <strong>
-              {g.source} · {g.report || "—"}
+              {g.source} ·{" "}
+              {(g.source === "matomo"
+                ? matomoReportLabel(g.report, de)
+                : g.report) || "—"}
             </strong>{" "}
             · {g.currency ?? "—"} · {g.timezone ?? "—"}
             <p style={{ overflowWrap: "anywhere" }}>{g.accountId ?? "—"}</p>
             <p>
-              {de ? "Sitzungen" : "Sessions"}: {number(g.sessions)} ·{" "}
-              {de ? "Klicks" : "Clicks"}: {number(g.clicks)} ·{" "}
-              {de ? "Einblendungen" : "Impressions"}: {number(g.impressions)} ·{" "}
-              {de ? "Conversions" : "Conversions"}: {number(g.conversions)}
+              {g.source === "matomo" && g.report === "Actions.get" ? (
+                <>
+                  {de ? "Seitenaufrufe" : "Page views"}:{" "}
+                  {number(g.pageviews ?? null)} ·{" "}
+                  {de ? "Externe Linkklicks" : "Outbound link clicks"}:{" "}
+                  {number(g.outlinkClicks ?? null)}
+                </>
+              ) : g.source === "matomo" && g.report === googleSearchReport ? (
+                <>
+                  {de ? "Google-Suchimpressionen" : "Google Search impressions"}
+                  : {number(g.impressions)} ·{" "}
+                  {de ? "Google-Suchklicks" : "Google Search clicks"}:{" "}
+                  {number(g.clicks)}
+                </>
+              ) : (
+                <>
+                  {de ? "Sitzungen" : "Sessions"}: {number(g.sessions)} ·{" "}
+                  {de ? "Klicks" : "Clicks"}: {number(g.clicks)} ·{" "}
+                  {de ? "Einblendungen" : "Impressions"}:{" "}
+                  {number(g.impressions)} · Conversions: {number(g.conversions)}
+                </>
+              )}
             </p>
             <p>
               {de ? "Beobachtete Tage" : "Observed days"}: {g.days} ·{" "}

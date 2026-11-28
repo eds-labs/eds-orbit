@@ -1,4 +1,4 @@
-import { matomoImportDays } from "./matomo-schedule.ts";
+import { matomoImportDays, matomoSearchImportDays } from "./matomo-schedule.ts";
 import {
   afterAll,
   beforeAll,
@@ -19,12 +19,25 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { create, data, encrypt, update } from "../../../shared.ts";
 import { analyze } from "../pipeline/workflow.ts";
 const transport = vi.hoisted(() => ({ report: vi.fn() }));
-vi.mock("../../../../../../packages/connectors/src/matomo.ts", () => ({
-  createMatomoClient: () => ({ report: transport.report }),
-}));
+vi.mock(
+  import("../../../../../../packages/connectors/src/matomo.ts"),
+  async (original) => {
+    const actual = await original();
+    return {
+      ...actual,
+      createMatomoClient: (options) => ({
+        ...actual.createMatomoClient(options),
+        report: transport.report,
+      }),
+    };
+  },
+);
+import { ConnectorError } from "../../../../../../packages/connectors/src/http.ts";
+import { matomoGoogleSearchReport } from "../../../../../../packages/connectors/src/matomo.ts";
 import {
   importMatomoReport,
   normalizeMatomoReport,
+  readMatomoTrend,
   matomoDayInterval,
   matomoImportInput,
   type MatomoImportInput,
@@ -54,6 +67,17 @@ describe("Matomo schedule calendar days", () => {
     expect(
       matomoImportDays(new Date("2026-03-29T22:30:00Z"), "Europe/Berlin"),
     ).toEqual(["2026-03-29", "2026-03-30"]);
+  });
+  it("rechecks seven closed dates for delayed Search Console data across a month boundary", () => {
+    expect(matomoSearchImportDays("2026-11-03")).toEqual([
+      "2026-10-27",
+      "2026-10-28",
+      "2026-10-29",
+      "2026-10-30",
+      "2026-10-31",
+      "2026-11-01",
+      "2026-11-02",
+    ]);
   });
 });
 describe("Matomo report normalization", () => {
@@ -91,6 +115,67 @@ describe("Matomo report normalization", () => {
       synthetic: false,
       complete: false,
     });
+  });
+  it("keeps outbound link actions apart from search clicks and preserves measured zeros", () => {
+    const actions = { ...input, method: "Actions.get" as const };
+    const [row] = normalizeMatomoReport(
+      actions,
+      snapshot(actions, { nb_pageviews: "24", nb_outlinks: 0 }),
+    );
+    expect(row).toMatchObject({
+      pageviews: 24,
+      outlinkClicks: 0,
+      clicks: null,
+      impressions: null,
+      sessions: null,
+    });
+  });
+  it("aggregates Google Web Search rows without retaining keyword labels", () => {
+    const search: MatomoImportInput = {
+      ...input,
+      method: matomoGoogleSearchReport,
+    };
+    const [row] = normalizeMatomoReport(
+      search,
+      snapshot(search, [
+        { label: "private search term", nb_impressions: 100, nb_clicks: "6" },
+        { label: "second term", nb_impressions: "20", nb_clicks: 0 },
+      ]),
+    );
+    expect(row).toMatchObject({
+      impressions: 120,
+      clicks: 6,
+      sessions: null,
+      sampleSize: 120,
+      complete: false,
+    });
+    expect(JSON.stringify(row)).not.toContain("private search term");
+    expect(row?.accountId).toContain(matomoGoogleSearchReport);
+  });
+  it("keeps an absent search metric unknown and an empty provider report empty", () => {
+    const search: MatomoImportInput = {
+      ...input,
+      method: matomoGoogleSearchReport,
+    };
+    const [row] = normalizeMatomoReport(
+      search,
+      snapshot(search, [{ nb_impressions: 0, nb_clicks: 0 }, { nb_clicks: 0 }]),
+    );
+    expect(row).toMatchObject({
+      impressions: null,
+      clicks: 0,
+      sampleSizeMissing: true,
+    });
+    expect(normalizeMatomoReport(search, snapshot(search, []))).toEqual([]);
+    expect(() =>
+      normalizeMatomoReport(
+        search,
+        snapshot(search, [
+          { nb_clicks: 0, nb_impressions: Number.MAX_SAFE_INTEGER },
+          { nb_impressions: 1 },
+        ]),
+      ),
+    ).toThrow("INVALID_MATOMO_METRIC");
   });
   it("separates report denominators and strips private page URL query values", () => {
     const pages = { ...input, method: "Actions.getPageUrls" as const };
@@ -250,6 +335,83 @@ describe.skipIf(!enabled)(
           tx.entityVersion.count({ where: { entityId: metric.id } }),
         ),
       ).toBe(2);
+    });
+    it("reports an unavailable Google search report without writing metrics or exposing provider details", async () => {
+      const search: MatomoImportInput = {
+        ...input,
+        method: matomoGoogleSearchReport,
+      };
+      transport.report.mockRejectedValue(
+        new ConnectorError(
+          "REPORT_UNAVAILABLE",
+          "rejected",
+          false,
+          200,
+          "private provider details",
+        ),
+      );
+      await expect(importMatomoReport(scope, search)).rejects.toMatchObject({
+        code: "MATOMO_SEARCH_REPORT_UNAVAILABLE",
+        status: 502,
+      });
+      expect(await run((tx) => readMatomoTrend(tx, scope))).toEqual({
+        items: [],
+        truncated: false,
+      });
+    });
+    it("reads corrected daily search totals for the chart and excludes detailed and synthetic rows", async () => {
+      const search: MatomoImportInput = {
+        ...input,
+        method: matomoGoogleSearchReport,
+      };
+      await importMatomoReport(scope, input);
+      transport.report.mockResolvedValue(
+        snapshot(search, [
+          { label: "first query", nb_impressions: 14, nb_clicks: 1 },
+        ]),
+      );
+      const first = await importMatomoReport(scope, search);
+      expect(first.created).toBe(1);
+      transport.report.mockResolvedValue(
+        snapshot(search, [
+          { label: "second query", nb_impressions: 16, nb_clicks: 2 },
+        ]),
+      );
+      const revised = await importMatomoReport(scope, search);
+      expect(revised).toMatchObject({
+        corrected: 1,
+        metricIds: first.metricIds,
+      });
+      await run(async (tx) => {
+        await create(tx, scope, "metrics", {
+          source: "matomo",
+          synthetic: false,
+          reportMethod: "Actions.getPageUrls",
+        });
+        await create(tx, scope, "metrics", {
+          source: "matomo",
+          synthetic: true,
+          reportMethod: "Actions.get",
+        });
+        const chart = await readMatomoTrend(tx, scope);
+        expect(chart.truncated).toBe(false);
+        expect(chart.items).toHaveLength(2);
+        expect(chart.items).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              reportMethod: input.method,
+              sessions: 40,
+            }),
+            expect.objectContaining({
+              reportMethod: search.method,
+              impressions: 16,
+              clicks: 2,
+              sessions: null,
+            }),
+          ]),
+        );
+        expect(JSON.stringify(chart)).not.toMatch(/query|providerFetchedAt/);
+      });
     });
     it("refuses connector/site/role mismatch before the report read", async () => {
       await expect(

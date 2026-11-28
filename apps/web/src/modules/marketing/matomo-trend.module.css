@@ -1,0 +1,108 @@
+.panel {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: clamp(16px, 3vw, 24px);
+  margin-bottom: 20px;
+}
+
+.panel h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.note {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 390px) minmax(0, 300px);
+  gap: 12px;
+}
+
+.controls label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.controls select {
+  width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.chart {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.scale span:last-child {
+  margin-top: auto;
+}
+
+.bars {
+  height: 136px;
+  display: grid;
+  grid-template-columns: repeat(30, minmax(0, 1fr));
+  gap: clamp(1px, 0.5vw, 5px);
+  border-block: 1px solid var(--border);
+}
+
+.slot {
+  display: flex;
+  align-items: end;
+}
+
+.bar {
+  width: 100%;
+  background: var(--primary);
+  border-radius: 2px 2px 0 0;
+  forced-color-adjust: none;
+}
+
+.bar[data-zero] {
+  min-height: 3px;
+}
+
+.dates {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+}
+
+.panel summary {
+  cursor: pointer;
+  padding-block: 8px;
+}
+
+@media (max-width: 760px) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bars {
+    height: 108px;
+  }
+  .panel summary {
+    min-height: 44px;
+  }
+}
+
+@media (forced-colors: active) {
+  .bar {
+    background: CanvasText;
+  }
+}

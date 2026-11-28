@@ -5,12 +5,15 @@ import { RecordDetail } from "@/platform/ui/record-detail";
 import { marketingRecordActions } from "./record-actions";
 import { useState } from "react";
 import { MatomoImport, MatomoSchedule } from "./matomo-tools";
+import { MatomoTrend, type MatomoTrendData } from "./matomo-trend";
+import { matomoReportLabel } from "./matomo-reports";
 import { BarChart3, Brain, Plus, FlaskConical } from "lucide-react";
 import {
   action,
   collectionPath,
   post,
   useMutation,
+  useResource,
   value,
   when,
   type Entity,
@@ -45,10 +48,13 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 export function Analytics() {
-  const { t, locale, project, canEdit, refresh } = useWorkspace();
+  const { t, locale, project, canEdit, refresh, revision } = useWorkspace();
   const metrics = useCollection("metrics"),
     insights = useCollection("insights"),
     experiments = useCollection("experiments");
+  const trend = useResource<MatomoTrendData>(
+    `/projects/${project.id}/marketing/matomo-trend?revision=${revision}`,
+  );
   const [csvImport, setCsvImport] = useState(false),
     [tab, setTab] = useState("metrics"),
     [add, setAdd] = useState(false),
@@ -88,6 +94,9 @@ export function Analytics() {
           </>
         )}
       </PageHead>
+      {trend.loading && <Loading />}
+      <ResourceError error={trend.error} retry={trend.refresh} />
+      {trend.data && <MatomoTrend data={trend.data} locale={locale} />}
       <PeriodicReports />
       <Tabs
         tabs={[
@@ -104,11 +113,6 @@ export function Analytics() {
         value={tab}
         onChange={setTab}
       />
-      <Alert>
-        {locale === "de"
-          ? "Klicks, Sitzungen und Zielaktionen sind verschiedene Größen. Fehlende Werte bleiben unbekannt."
-          : "Clicks, sessions and target actions are separate measures. Missing data remains unknown."}
-      </Alert>
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
       {mutation.success && (
         <Alert kind="success">
@@ -259,20 +263,23 @@ function MetricTable({
   onSelect: (e: Entity) => void;
 }) {
   const { locale, project } = useWorkspace();
+  const de = locale === "de";
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
             {[
-              "Source / campaign",
-              "Period",
-              "Impressions",
-              "Clicks",
-              "Sessions",
+              de ? "Quelle / Kampagne" : "Source / campaign",
+              de ? "Zeitraum" : "Period",
+              de ? "Impressionen" : "Impressions",
+              de ? "Klicks" : "Clicks",
+              de ? "Besuche" : "Visits",
+              de ? "Seitenaufrufe" : "Page views",
+              de ? "Externe Linkklicks" : "Outbound link clicks",
               "Conversions",
-              "Spend",
-              "Sample",
+              de ? "Ausgaben" : "Spend",
+              de ? "Stichprobe" : "Sample",
             ].map((v) => (
               <th key={v}>{v}</th>
             ))}
@@ -285,7 +292,13 @@ function MetricTable({
                 <button className="row-button" onClick={() => onSelect(e)}>
                   {value(e, "source")}
                 </button>
-                <small>{value(e, "campaign")}</small>
+                {e.data.source === "matomo" &&
+                  typeof e.data.reportMethod === "string" && (
+                    <small>{matomoReportLabel(e.data.reportMethod, de)}</small>
+                  )}
+                {e.data.campaign !== "site:all" && (
+                  <small>{value(e, "campaign")}</small>
+                )}
                 {e.data.synthetic === true && (
                   <Badge tone="warning">Synthetic</Badge>
                 )}
@@ -299,6 +312,8 @@ function MetricTable({
               <td>{value(e, "impressions")}</td>
               <td>{value(e, "clicks")}</td>
               <td>{value(e, "sessions")}</td>
+              <td>{value(e, "pageviews")}</td>
+              <td>{value(e, "outlinkClicks")}</td>
               <td>{value(e, "conversions")}</td>
               <td>
                 {e.data.costMicros === null
