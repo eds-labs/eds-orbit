@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { test, expect, type Page } from "./fixtures";
+import { test, expect, type Locator, type Page } from "./fixtures";
 import { SEED, signIn } from "./settings-center-helpers";
 import type { MigrationView } from "../src/modules/social/legacy";
 
@@ -14,6 +14,86 @@ const pageOverflow = (page: Page) =>
       document.documentElement.scrollWidth -
       document.documentElement.clientWidth,
   );
+
+function horizontalEdges(locator: Locator, contentBox = false) {
+  return locator.evaluate((element, contentBox) => {
+    const { left, right } = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      left: Math.round(left + (contentBox ? parseFloat(style.paddingLeft) : 0)),
+      right: Math.round(right - (contentBox ? parseFloat(style.paddingRight) : 0)),
+    };
+  }, contentBox);
+}
+
+test("project pages use the dashboard's content width and left edge", async ({
+  page,
+}) => {
+  await signIn(page);
+  const base = `/p/${projectId()}`;
+  const routes = [
+    { path: base, surface: ".project-home" },
+    { path: `${base}/marketing`, surface: ".page-head" },
+    { path: `${base}/knowledge/sources`, surface: ".knowledge-workspace" },
+  ];
+
+  for (const { path, surface } of routes) {
+    await page.goto(path);
+    const main = page.getByRole("main");
+    const content = main.locator(surface).first();
+    const title = main.getByRole("heading", { level: 1 });
+    await expect(content).toBeVisible();
+    await expect(title).toBeVisible();
+
+    for (const width of [2560, 761, 760, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await horizontalEdges(main)).toEqual(
+        await horizontalEdges(page.locator(".workspace")),
+      );
+      const expected = await horizontalEdges(main, true);
+      expect(await horizontalEdges(content), `${path} at ${width}px`).toEqual(
+        expected,
+      );
+      expect((await horizontalEdges(title)).left).toBe(expected.left);
+      await expect.poll(() => pageOverflow(page)).toBe(0);
+    }
+  }
+});
+
+test("settings and account content span the standalone page", async ({ page }) => {
+  await signIn(page);
+  const response = await page.request.get("/api/management/capabilities");
+  expect(response.ok()).toBe(true);
+  const caps = await response.json();
+  test.skip(
+    !caps.system.length || !caps.account.includes("account.profile"),
+    "needs seeded system administration and account settings",
+  );
+
+  for (const { path, surface } of [
+    { path: "/manage/system", surface: ".manage-cards" },
+    { path: "/manage/me/profile", surface: ".account-page" },
+  ]) {
+    await page.goto(path);
+    const main = page.getByRole("main");
+    const heading = main.getByRole("heading", { level: 1 });
+    const lane = main.locator(".settings-content");
+    const content = lane.locator(surface);
+    await expect(content).toBeVisible();
+
+    for (const width of [2560, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      const frame = await horizontalEdges(page.getByRole("banner"));
+      expect(await horizontalEdges(main)).toEqual(frame);
+      expect((await horizontalEdges(heading)).left).toBe(frame.left);
+      const laneEdges = await horizontalEdges(lane);
+      expect(await horizontalEdges(content)).toEqual(laneEdges);
+      expect(laneEdges.right).toBe(frame.right);
+      if (width <= 760) expect(laneEdges.left).toBe(frame.left);
+      await expect.poll(() => pageOverflow(page)).toBe(0);
+    }
+  }
+});
 
 test("mobile drawer keeps focus inside and restores the trigger when it closes", async ({
   page,

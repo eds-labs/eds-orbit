@@ -2,6 +2,7 @@
 @import "./appearance.css";
 :root {
   --radius: 12px;
+  --page-gutter: 30px;
   /* The phone bottom bar (.mobile-nav): 1 px border, 9 px padding, 48 px
      entries and the bottom padding with the safe area. */
   --mobile-nav-height: calc(58px + max(9px, env(safe-area-inset-bottom)));
@@ -464,7 +465,7 @@ pre {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 30px;
+  padding: 0 var(--page-gutter);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -544,13 +545,7 @@ pre {
   color: light-dark(#203f60, var(--dark-accent));
 }
 .main {
-  max-width: 1800px;
-  margin: 0 auto;
-  padding: 30px 30px 22px;
-}
-/* The project home and embedded clients can use the whole content width. */
-.main:has([data-page-width="full"]) {
-  max-width: none;
+  padding: 30px var(--page-gutter) 22px;
 }
 .page-head {
   display: flex;
@@ -1332,10 +1327,10 @@ pre {
 }
 .empty {
   min-height: 250px;
-  padding: 34px 24px;
-  text-align: center;
+  padding: 34px var(--panel-inset, 0px);
+  text-align: start;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   flex-direction: column;
   gap: 12px;
@@ -1438,7 +1433,7 @@ pre {
 }
 .activity-panel .empty {
   min-height: 172px;
-  padding: 22px;
+  padding-block: 22px;
 }
 .activity-panel .empty-icon {
   background: none;
@@ -2579,7 +2574,6 @@ select.input {
 }
 .settings-content .support-form,
 .settings-content .settings-form {
-  max-width: 720px;
   padding: 0 var(--settings-inset) 21px;
 }
 .support-form label:not(.support-check) > span,
@@ -2821,7 +2815,7 @@ select.input {
 }
 .auth-page {
   min-height: 100vh;
-  padding: 32px 5vw;
+  padding: 32px var(--page-gutter);
   background:
     radial-gradient(at 0% 20%, light-dark(#dff2ffb0, var(--dark-raised)), transparent 50%),
     radial-gradient(at 100% 70%, light-dark(#e1faff9c, var(--dark-raised)), transparent 50%), light-dark(#f7fcff, var(--dark-raised));
@@ -2833,14 +2827,10 @@ select.input {
 }
 .auth-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8vw;
-  align-items: center;
-  max-width: 1100px;
-  margin: 70px auto;
-}
-.auth-intro {
-  max-width: 450px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(24px, 4vw, 64px);
+  align-items: start;
+  margin-block: 70px;
 }
 .auth-intro h1 {
   font-size: 48px;
@@ -2891,12 +2881,10 @@ select.input {
 .auth-page > footer {
   font-size: 12px;
   color: var(--muted-foreground);
-  text-align: center;
   margin-bottom: 20px;
 }
 .onboarding {
-  max-width: 550px;
-  margin: 60px auto;
+  margin-block: 60px;
 }
 .onboarding > p {
   margin: 12px 0 35px;
@@ -2910,8 +2898,11 @@ select.input {
   display: none;
 }
 @media (min-width: 1600px) {
+  :root {
+    --page-gutter: 38px;
+  }
   .main {
-    padding: 38px;
+    padding-block: 38px;
   }
   .overview-columns {
     grid-template-columns: 1.6fr 1fr;
@@ -2921,6 +2912,9 @@ select.input {
   }
 }
 @media (max-width: 1200px) {
+  :root {
+    --page-gutter: 22px;
+  }
   .sidebar {
     width: 208px;
   }
@@ -2928,10 +2922,7 @@ select.input {
     margin-left: 208px;
   }
   .main {
-    padding: 25px 22px;
-  }
-  .topbar {
-    padding: 0 22px;
+    padding-block: 25px;
   }
   .brand {
     font-size: 20px;
@@ -3221,8 +3212,11 @@ select.input {
     min-height: 44px;
     font-size: 10px;
   }
+  :root {
+    --page-gutter: 18px;
+  }
   .main {
-    padding: 20px 18px calc(var(--mobile-nav-height) + 64px);
+    padding-block: 20px calc(var(--mobile-nav-height) + 64px);
   }
   .page-head {
     flex-direction: column;
@@ -3345,7 +3339,7 @@ select.input {
     font-size: 11px;
   }
   .empty {
-    padding: 26px 18px;
+    padding-block: 26px;
     min-height: 184px;
     gap: 11px;
   }
@@ -3686,17 +3680,15 @@ select.input {
     font-size: 11px;
   }
   .auth-page {
-    padding: 24px 20px;
+    padding-block: 24px;
   }
   .auth-page > .header .brand {
     font-size: 20px;
   }
   .auth-layout {
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
     gap: 28px;
-    margin: 36px auto;
-    max-width: 470px;
+    margin-block: 36px;
   }
   .auth-intro h1 {
     font-size: 32px;
@@ -6003,25 +5995,24 @@ svg.agent-graph {
 .page-head h2 {
   font-size: 24px;
 }
-.picker-page {
+.standalone-page {
   min-height: 100vh;
-  padding: 32px 5vw;
+  padding: 32px var(--page-gutter);
   background:
     radial-gradient(at 0% 20%, light-dark(#dff2ffb0, var(--dark-raised)), transparent 50%),
     radial-gradient(at 100% 70%, light-dark(#e1faff9c, var(--dark-raised)), transparent 50%), var(--background);
 }
-.picker-page > header {
+.standalone-page > header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
 }
-.picker-page .signout {
+.standalone-page .signout {
   margin: 0;
 }
-.picker-main {
-  max-width: 640px;
-  margin: 60px auto;
+.standalone-main {
+  margin-block: 40px;
 }
 .picker > h1 {
   margin-top: 8px;
@@ -6075,8 +6066,7 @@ svg.agent-graph {
   margin-bottom: 14px;
 }
 .not-found {
-  max-width: 560px;
-  margin: 40px auto;
+  margin-block: 40px;
 }
 /* Project home (UI restructure §5.1): greeting and prompt, the status strip,
    the attention list, then the module sections. */
@@ -6515,10 +6505,6 @@ svg.agent-graph {
     display: none;
   }
 }
-.connect-card {
-  max-width: 640px;
-  margin: 0 auto;
-}
 .connect-card .panel-head h1 {
   font-size: 20px;
 }
@@ -6585,11 +6571,11 @@ svg.agent-graph {
   overflow-wrap: anywhere;
 }
 @media (max-width: 760px) {
-  .picker-page {
-    padding: 20px 16px;
+  .standalone-page {
+    padding-block: 20px;
   }
-  .picker-main {
-    margin: 32px auto;
+  .standalone-main {
+    margin-block: 32px;
   }
   .home-head h1 {
     font-size: 24px;
@@ -7127,10 +7113,6 @@ a.support-row {
 }
 
 /* Reviewed project knowledge: clear reading surfaces, progressive disclosure. */
-.knowledge-workspace {
-  max-width: 1120px;
-  margin-inline: auto;
-}
 .knowledge-heading {
   display: flex;
   align-items: flex-start;
@@ -7478,7 +7460,6 @@ a.support-row {
   color: light-dark(#071522, var(--dark-text));
 }
 .knowledge-form {
-  max-width: 760px;
   padding-block: 24px;
 }
 .knowledge-check,
@@ -7694,9 +7675,6 @@ a.support-row {
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-.knowledge-workspace .knowledge-form {
-  width: 100%;
 }
 
 /* Assignment counts remain readable inside the existing horizontal scroller. */
@@ -7981,10 +7959,6 @@ a.support-row {
   }
 }
 /* System administration, organization settings and account (ADR 0013). */
-.admin-main {
-  max-width: 1280px;
-  margin: 40px auto;
-}
 .admin-layout {
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
@@ -8096,11 +8070,6 @@ a.support-row {
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-.account-page {
-  max-width: 760px;
-  width: 100%;
-  margin: 0 auto;
 }
 .panel-body {
   padding: 0 var(--panel-inset, 21px) 21px;

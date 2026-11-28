@@ -142,7 +142,7 @@ One `useResource` on `/projects/:id/attention?revision=` in the shell, shared by
 
 ### 5.1 Home (`platform/shell/home.tsx`)
 
-Top to bottom, max width 1180 px:
+The home fills the project workspace with the shared page gutters. The sections run in this order.
 
 1. **Head**: "Guten Morgen/Tag/Abend, <first name>" by local time (first word of `identity.user.name`; without a name only the greeting); subtitle with the date and "N Dinge brauchen dich heute" (N = items with severity critical or warning).
 2. **Assistant prompt**: a single-line input with a send button; same behaviour as today (`storeAssistantDraft`, then the chat).

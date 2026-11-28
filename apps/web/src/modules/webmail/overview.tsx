@@ -285,10 +285,8 @@ export function WebmailOverview() {
       </>
     );
 
-  // The client needs every pixel, so this page opts out of the shell's width
-  // cap (globals.css, `data-page-width`) and keeps its controls in the head.
   return (
-    <div className={styles.page} data-page-width="full">
+    <div className={styles.page}>
       <PageHead eyebrow={t.eyebrow} title={t.title} description={t.intro}>
         <MailboxPicker
           t={t}

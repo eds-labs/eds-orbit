@@ -31,6 +31,11 @@ Start with the [Orbit design system](../../../docs/DESIGN_SYSTEM.md). Use its Ar
 - Structure list rows around a readable title, secondary metadata, a text status when relevant, and a predictable action position. Keep comparable rows aligned and let longer titles and labels grow vertically. Keep route links and action buttons separately operable. Use tables for comparing columns and preserve their headers and sort controls.
 - Keep page headings, forms and data states consistent across views. Use existing loading, empty, error, disabled and pending patterns where applicable. Preserve keyboard access, visible focus, localized labels, deep links and permission-based controls.
 
+### Use the full page width
+
+- Use the dashboard as the layout reference. Let page sections, forms, lists and tables fill the available content area and start headings, content and empty states at their shared left inset. This applies to every module, the settings center and standalone pages. Use the responsive page gutters in the shared shell. Keep the settings section rail and other functional columns within that layout.
+- Keep width limits within the components that need them for readable prose, compact controls or overlays. Let tables that need wider columns scroll within their own region.
+
 ### Compose for narrow screens
 
 - Follow the shell's 760 px mobile breakpoint. Stack filters, controls and inspectors when their content needs room. Let action labels wrap and keep the primary action visible and reachable. Use the existing 44 px mobile targets and 16 px mobile form text.
@@ -40,7 +45,7 @@ Start with the [Orbit design system](../../../docs/DESIGN_SYSTEM.md). Use its Ar
 ### Review and verify
 
 - For a reported layout issue, reproduce it in the affected route with the relevant data state. Check the rendered view and its containers before changing CSS. For a broad audit, record coverage by route and viewport, including the shell, administration/settings and affected module views. Report what you observed and identify gaps in coverage.
-- For changes to visible layout, check a desktop view and narrow mobile views at 320 px and 390 px in the browser. Check both sides of the 760 px breakpoint for changes to responsive behavior. Use a populated view with long German or English labels, plus the states affected by the change. When appearance styles change, check light and dark. Use WebKit for Safari-specific, safe-area or mobile input behavior where relevant.
+- For changes to visible layout, check a desktop view and narrow mobile views at 320 px and 390 px in the browser. Check both sides of the 760 px breakpoint for changes to responsive behavior. For page layout changes, also check a 2560 px desktop and verify that content spans the shell from its left gutter to its right gutter. Use a populated view with long German or English labels, plus the states affected by the change. When appearance styles change, check light and dark. Use WebKit for Safari-specific, safe-area or mobile input behavior where relevant.
 - For visual regressions, capture before-and-after screenshots at matching viewport and state where possible. Verify the concrete behavior, such as aligned title and alert insets, no page-level horizontal overflow, an operable row menu or a reachable final action. Use the existing [Playwright tests](../../../apps/web/tests/) for the affected flow. [Knowledge layout](../../../apps/web/tests/knowledge-layout.spec.ts) shows how to combine visual inspection with targeted assertions.
 
 ## Erwarteter Output

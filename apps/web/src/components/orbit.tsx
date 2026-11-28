@@ -785,12 +785,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       <StandaloneContext.Provider
         value={{ locale, t, identity: null, setLocale }}
       >
-        <div className="picker-page">
+        <div className="standalone-page">
           <header>
             <Brand />
             <div className="topbar-actions">{languageControl}</div>
           </header>
-          <main id="main" className="picker-main">
+          <main id="main" className="standalone-main">
             {standalone.component && <standalone.component />}
           </main>
         </div>
@@ -895,8 +895,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   );
   // Pages outside a project: pickers, the settings center and unknown
   // addresses. `framed` is the page without the assistant around it.
-  const framed = (children: ReactNode, wide = false) => (
-    <div className="picker-page">
+  const framed = (children: ReactNode) => (
+    <div className="standalone-page">
       <header>
         <Brand />
         <div className="topbar-actions">
@@ -904,14 +904,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           {userMenu()}
         </div>
       </header>
-      <main id="main" className={wide ? "admin-main" : "picker-main"}>
+      <main id="main" className="standalone-main">
         {signout.error && <Alert kind="error">{signout.error}</Alert>}
         {children}
       </main>
     </div>
   );
-  const frame = (children: ReactNode, wide = false) =>
-    withAssistant(framed(children, wide));
+  const frame = (children: ReactNode) => withAssistant(framed(children));
   // The workspace of a project page, shared with the project scope of the
   // settings center so both give module code the same context.
   const workspaceValue = (
@@ -967,7 +966,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       >
         {standalone.component && <standalone.component />}
       </StandaloneContext.Provider>,
-      standalone.key === "assistant",
     );
   // The agents of all projects (ADR 0021); the summary API lists only
   // projects the member may read agents in.
@@ -986,7 +984,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               locale={locale}
             />
           </>,
-          true,
         )
       : frame(<NotFound t={t} project={false} />);
   if (
@@ -1045,7 +1042,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         <StandaloneContext.Provider value={standaloneValue}>
           {view}
         </StandaloneContext.Provider>,
-        true,
       );
     // The project scope gives module sections the context of a project page:
     // the role is the project role, as no module page is open.
@@ -1085,7 +1081,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </WorkspaceContext.Provider>
         </ShellContext.Provider>
       </StandaloneContext.Provider>,
-      true,
     );
   }
   if (place.kind === "organizations")
