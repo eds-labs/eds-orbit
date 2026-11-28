@@ -2,7 +2,7 @@
 
 ## Scope and source
 
-The user selected the existing EDS Labs Arctic Blue / Liquid Glass system. The implementation follows `apply-eds-labs-ui-style` and `frontend-app-builder`. The Next.js custom backend preset is fixed by the master; React/Vite is a plausible smaller client alternative, but would replace the expressly selected application framework.
+The user selected the existing EDS Labs Arctic Blue / Liquid Glass system. For Orbit UI work, use the [`orbit-ui-ux` skill](../.agents/skills/orbit-ui-ux/SKILL.md) to apply this design system and verify the result. The Next.js custom backend preset is fixed by the master; React/Vite is a plausible smaller client alternative, but would replace the expressly selected application framework.
 
 Three complete concept images were generated before UI implementation with the built-in Image Gen tool, without application API credentials or paid application test calls:
 
