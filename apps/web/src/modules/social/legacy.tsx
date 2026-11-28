@@ -55,6 +55,7 @@ const TEXT = {
     title: "Move from Postiz",
     intro: "Map each Postiz channel to its Social account, copy the Postiz history, then let Postiz finish and switch Marketing to Social.",
     backend: { postiz: "Marketing publishes through Postiz.", postiz_draining: "Postiz finishes what it has; nothing new goes to it.", social: "Marketing publishes through Social." } as Record<Backend, string>,
+    mappings: "Postiz channel mappings",
     channel: "Postiz channel",
     account: "Social account",
     none: "Not mapped",
@@ -76,6 +77,7 @@ const TEXT = {
     title: "Umzug von Postiz",
     intro: "Ordne jeden Postiz-Kanal seinem Social-Konto zu, übernimm den Postiz-Verlauf, lass Postiz auslaufen und stelle Marketing auf Social um.",
     backend: { postiz: "Marketing veröffentlicht über Postiz.", postiz_draining: "Postiz erledigt, was es hat; Neues geht nicht mehr an Postiz.", social: "Marketing veröffentlicht über Social." } as Record<Backend, string>,
+    mappings: "Postiz-Kanalzuordnungen",
     channel: "Postiz-Kanal",
     account: "Social-Konto",
     none: "Nicht zugeordnet",
@@ -131,47 +133,49 @@ export function MigrationPanel({
       <p>
         <strong>{t.backend[view.backend]}</strong>
       </p>
-      <table className="table">
-        <thead>
-          <tr>
-            <th scope="col">{t.channel}</th>
-            <th scope="col">{t.account}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {view.channels.map((c) => (
-            <tr key={c.integrationId}>
-              <td>
-                {c.name} {c.platform && <span className="field-hint">{platforms[c.platform]}</span>}
-              </td>
-              <td>
-                {!c.platform ? (
-                  <span className="field-hint">{t.unsupported}</span>
-                ) : owner ? (
-                  <select
-                    aria-label={`${t.account}: ${c.name}`}
-                    value={c.accountId ?? ""}
-                    disabled={busy}
-                    onChange={(e) => onMap(c.integrationId, e.target.value || null)}
-                  >
-                    <option value="">{t.none}</option>
-                    {view.accounts
-                      .filter((a) => a.platform === c.platform)
-                      .map((a) => (
-                        <option key={a.accountId} value={a.accountId}>
-                          {label(a)}
-                        </option>
-                      ))}
-                  </select>
-                ) : (
-                  name(c.accountId)
-                )}
-                {!c.accountId && c.suggestedAccountId && <span className="field-hint"> {t.suggested(name(c.suggestedAccountId))}</span>}
-              </td>
+      <div className="table-wrap" role="region" aria-label={t.mappings} tabIndex={0}>
+        <table className="table">
+          <thead>
+            <tr>
+              <th scope="col">{t.channel}</th>
+              <th scope="col">{t.account}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {view.channels.map((c) => (
+              <tr key={c.integrationId}>
+                <td>
+                  {c.name} {c.platform && <span className="field-hint">{platforms[c.platform]}</span>}
+                </td>
+                <td>
+                  {!c.platform ? (
+                    <span className="field-hint">{t.unsupported}</span>
+                  ) : owner ? (
+                    <select
+                      aria-label={`${t.account}: ${c.name}`}
+                      value={c.accountId ?? ""}
+                      disabled={busy}
+                      onChange={(e) => onMap(c.integrationId, e.target.value || null)}
+                    >
+                      <option value="">{t.none}</option>
+                      {view.accounts
+                        .filter((a) => a.platform === c.platform)
+                        .map((a) => (
+                          <option key={a.accountId} value={a.accountId}>
+                            {label(a)}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    name(c.accountId)
+                  )}
+                  {!c.accountId && c.suggestedAccountId && <span className="field-hint"> {t.suggested(name(c.suggestedAccountId))}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p className="field-hint">{view.inventory.blockingSwitch ? t.pending(view.inventory.blockingSwitch) : t.clear}</p>
       {unsupported.length > 0 && <p className="field-hint">{t.notInSocial(unsupported.map((c) => c.name).join(", "))}</p>}
       {!allMapped && !unsupported.length && <p className="field-hint">{t.unmapped}</p>}

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { test, expect, type Page } from "./fixtures";
 import { SEED, signIn } from "./settings-center-helpers";
+import type { MigrationView } from "../src/modules/social/legacy";
 
 test.skip(!existsSync(SEED), "needs the seeded e2e installation");
 
@@ -131,4 +132,67 @@ test("the brand screen handles a project without a marketing profile", async ({
       "Save the Marketing profile first; the brand kit is part of it.",
     ),
   ).toBeVisible();
+});
+
+test("long Postiz account names scroll inside the mapping table", async ({
+  page,
+}) => {
+  test.skip(process.env.E2E_SOCIAL !== "1", "needs a seeded social module");
+  await signIn(page);
+  const id = projectId();
+  const displayName =
+    "Redaktion und Kundenkommunikation für alle deutschsprachigen Projekte";
+  const mapping: MigrationView = {
+    backend: "postiz",
+    channels: [
+      {
+        integrationId: "test-channel",
+        name: "Test channel",
+        platform: "telegram",
+        accountId: "test-account",
+        suggestedAccountId: null,
+      },
+    ],
+    accounts: [
+      {
+        accountId: "test-account",
+        platform: "telegram",
+        handle: "orbit-test-redaktion",
+        displayName,
+        status: "active",
+        legacyPostizIntegrationId: "test-channel",
+      },
+    ],
+    inventory: {
+      backend: "postiz",
+      channels: { assigned: 1, mapped: 1 },
+      publications: {},
+      postizDrafts: {},
+      openExceptions: {},
+      blockingSwitch: 0,
+      readyToSwitch: false,
+    },
+  };
+  await page.route(
+    `**/api/projects/${id}/marketing/social-migration`,
+    (route) => route.fulfill({ json: mapping }),
+  );
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto(`/manage/p/${id}/integrations/social/accounts`);
+  const region = page.getByRole("region", { name: "Postiz channel mappings" });
+  const select = region.getByRole("combobox", {
+    name: "Social account: Test channel",
+  });
+  await expect(select).toHaveValue("test-account");
+  for (const width of [320, 390, 761, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => pageOverflow(page)).toBe(0);
+    if (width <= 390) {
+      expect(
+        await region.evaluate((el) => el.scrollWidth > el.clientWidth),
+      ).toBe(true);
+    }
+  }
+  await region.focus();
+  await expect(region).toBeFocused();
 });
