@@ -291,6 +291,20 @@ describe("consent step", () => {
     }
   });
 
+  it("requires explicit consent to share SEO data", () => {
+    const scopes = ["orbit:read", "orbit:seo.read"];
+    for (const locale of ["en", "de"] as const) {
+      const html = consent({ scopes }, locale);
+      const input = html.match(/<input[^>]*value="orbit:seo.read"[^>]*>/)?.[0];
+      expect(input).toBeDefined();
+      expect(input).not.toContain("checked");
+      expect(input).not.toContain("disabled");
+      expect(html).toContain(labels[locale].connectScopeSeoRead);
+    }
+    expect(acceptedScopes(scopes, false)).toEqual(["orbit:read"]);
+    expect(acceptedScopes(scopes, false, ["orbit:seo.read"])).toEqual(scopes);
+  });
+
   it("names all current projects when the selection covers them", () => {
     const html = consent({ allCurrent: true, projects: [] });
     expect(html).toContain("All current projects");

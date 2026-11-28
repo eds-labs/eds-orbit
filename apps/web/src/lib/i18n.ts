@@ -232,6 +232,8 @@ export const labels = {
       "Read social accounts, posts and the publishing calendar, and propose posts; the owner still approves every publication in Orbit",
     connectScopeCms:
       "Read content entries, drafts, media and websites, create and edit drafts (with write access) and propose publications; the owner or a content editor still approves every publication in Orbit",
+    connectScopeSeoRead:
+      "Read the linked websites and organic search performance of the chosen projects through this external app",
     connectScopeOther: "Other permission",
     connectNoProjects:
       "This workspace has no project you can share. Ask an owner to add you to a project, or choose another workspace.",
@@ -539,6 +541,8 @@ export const labels = {
       "Social-Media-Konten, Beiträge und den Veröffentlichungskalender lesen und Beiträge vorschlagen; der Owner gibt jede Veröffentlichung weiterhin in Orbit frei",
     connectScopeCms:
       "Inhalte, Entwürfe, Medien und Websites lesen, Entwürfe anlegen und bearbeiten (mit Schreibrecht) und Veröffentlichungen vorschlagen; der Owner oder ein Content-Editor gibt jede Veröffentlichung weiterhin in Orbit frei",
+    connectScopeSeoRead:
+      "Verknüpfte Websites und die organische Suchleistung der ausgewählten Projekte über diese externe App lesen",
     connectScopeOther: "Weitere Berechtigung",
     connectNoProjects:
       "Dieser Workspace hat kein Projekt, das du freigeben kannst. Bitte einen Owner, dich zu einem Projekt hinzuzufügen, oder wähle einen anderen Workspace.",

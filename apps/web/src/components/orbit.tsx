@@ -1121,13 +1121,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const isOn = (id: string) =>
     Boolean(shell.modules.find((m) => m.id === id)?.enabled);
   const moduleOff = Boolean(route && !routeEnabled(route, isOn));
-  // Off only because the member's access is below the module's minAccess:
-  // a no-access notice instead of "turned off" (or the server's 403s).
+  // An enabled module the member cannot use shows the access notice.
   const noAccess = (() => {
     const id = route?.moduleId ?? route?.requiresModule;
+    const states = knownStates?.modules;
+    const state = states?.find((entry) => entry.id === id);
+    if (state?.enabled && state.access === "none") return true;
     const module = registry.modules.find((m) => m.id === id);
     if (!id || !module?.minAccess) return false;
-    const states = knownStates?.modules;
     return (
       moduleShown(states, id, module.optIn === true) &&
       !moduleShown(states, id, module.optIn === true, module.minAccess)

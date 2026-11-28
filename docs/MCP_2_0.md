@@ -80,6 +80,11 @@ endpoint. Repeating an approval returns the recorded result.
   decides every proposal, and the approval of `social_schedule` or
   `social_publish_now` is the post's approval. See
   [Social](SOCIAL.md#assistant-and-mcp-tools-s7).
+- `orbit:seo.read`: explicit, initially unchecked consent for SEO. With
+  `orbit:read`, it grants access to `seo_websites_list` and
+  `seo_search_performance` for projects with SEO enabled and sufficient module
+  permissions. Both scopes are also required to create a delegated work order
+  that names `seo`. Discovery can advertise the tool schemas before consent.
 - Module roles, installation switches and project activation still apply.
   Support also needs `ORBIT_SUPPORT` and explicit per-project activation.
 - Text generation needs the existing spend mandate, priced/verified model and

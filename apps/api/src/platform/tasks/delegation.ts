@@ -8,6 +8,7 @@ import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
 import { registeredToolOwner } from "../modules/contributions.ts";
 import { DomainError, hash } from "../shared.ts";
 import type { McpPrincipal } from "../mcp/principal.ts";
+import { SEO_READ_SCOPE } from "../mcp/scopes.ts";
 
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 
@@ -75,6 +76,18 @@ export async function delegationPrincipal(
   return principal;
 }
 
+/** A work order needs the same read consent as a direct organic search tool call. */
+export function requireSeoTaskConsent(
+  modules: readonly string[],
+  scopes: ReadonlySet<string>,
+) {
+  if (
+    modules.includes("seo") &&
+    (!scopes.has("orbit:read") || !scopes.has(SEO_READ_SCOPE))
+  )
+    throw new DomainError("MCP_SEO_CONSENT_REQUIRED", 403);
+}
+
 export async function assertDelegation(
   scope: Scope,
   d: Delegation | null,
@@ -84,6 +97,7 @@ export async function assertDelegation(
   const { projectScope } = await import("../mcp/principal.ts");
   const { principalModules } = await import("../mcp/visibility.ts");
   const p = await delegationPrincipal(scope, d);
+  requireSeoTaskConsent(d.modules, p.scopes);
   const allowed = await principalModules(
     p,
     await projectScope(p, scope.projectId),

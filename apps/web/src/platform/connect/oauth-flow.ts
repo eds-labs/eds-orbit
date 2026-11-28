@@ -133,6 +133,7 @@ export const EXPLICIT_SCOPES = [
   "orbit:issues",
   "orbit:social",
   "orbit:cms",
+  "orbit:seo.read",
 ] as const;
 
 /** The scopes to accept: the requested ones in order, minus an unticked propose. */

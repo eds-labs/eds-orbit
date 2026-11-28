@@ -60,6 +60,7 @@ describe("a third module through the contracts alone", () => {
       "finance",
       "issues",
       "knowledge",
+      "seo",
       "social",
       "support",
       "tasks",
@@ -94,6 +95,7 @@ describe("a third module through the contracts alone", () => {
       "webmail",
       "ads",
       "cms",
+      "seo",
     ]);
     expect(moduleRegistry().modules.map((m) => m.id)).toContain("tasks");
   });

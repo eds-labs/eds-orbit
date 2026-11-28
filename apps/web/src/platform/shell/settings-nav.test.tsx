@@ -200,6 +200,7 @@ describe("module settings links in the sidebar", () => {
       ["webmail", "integrations"],
       ["ads", undefined],
       ["cms", "cms-sites"],
+      ["seo", undefined],
     ]);
   });
 

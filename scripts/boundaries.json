@@ -66,6 +66,9 @@
     "module:ads": [
       "apps/api/src/modules/ads/"
     ],
+    "module:seo": [
+      "apps/api/src/modules/seo/"
+    ],
     "module:cms": [
       "apps/api/src/modules/cms/"
     ],
@@ -103,6 +106,9 @@
     ],
     "web-module:ads": [
       "apps/web/src/modules/ads/"
+    ],
+    "web-module:seo": [
+      "apps/web/src/modules/seo/"
     ],
     "web-module:cms": [
       "apps/web/src/modules/cms/"

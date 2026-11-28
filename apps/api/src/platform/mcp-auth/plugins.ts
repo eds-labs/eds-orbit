@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { SEO_READ_SCOPE } from "../mcp/scopes.ts";
 import { betterAuth } from "better-auth";
 import {
   APIError,
@@ -49,6 +50,7 @@ export const MCP_SCOPES = [
   "orbit:social",
   // Content entries, drafts, media and publishing proposals (ADR 0029).
   "orbit:cms",
+  SEO_READ_SCOPE,
 ] as const;
 
 /** Access-token claim naming the workspace the user granted (consent referenceId). */

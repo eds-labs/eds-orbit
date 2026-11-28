@@ -15,6 +15,7 @@ import { createTicket } from "../src/modules/support/tickets.ts";
 import { SCOPES } from "./mcp-oauth-flow-helpers.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import { buildServer } from "../src/server.ts";
+import { SEO_READ_SCOPE } from "../src/platform/mcp/scopes.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
 import { makeAuth } from "../src/auth.ts";
 import { MCP_SCOPES } from "../src/platform/mcp-auth/plugins.ts";
@@ -39,6 +40,7 @@ describe.skipIf(!enabled)(
       token = "";
     const client = `https://client.test/mcp2-${randomUUID()}.json`;
     const supportScopes = `${SCOPES} orbit:support`;
+    const seoScopes = `${SCOPES} ${SEO_READ_SCOPE}`;
     const resource = `${process.env.APP_ORIGIN}/mcp-upgrade-${randomUUID()}`;
     const clientKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const clientJwk = {
@@ -60,7 +62,7 @@ describe.skipIf(!enabled)(
     };
     const cimdFetch = cimdFetchFor({
       [client]: metadata(client, {
-        scope: supportScopes,
+        scope: `${supportScopes} ${SEO_READ_SCOPE}`,
         token_endpoint_auth_method: "private_key_jwt",
         token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
         jwks: { keys: [clientJwk] },
@@ -74,6 +76,7 @@ describe.skipIf(!enabled)(
       ORBIT_MCP_PROPOSALS: "true",
       ORBIT_SUPPORT: "true",
       ORBIT_SOCIAL: "true",
+      ORBIT_SEO: "true",
       ORBIT_MODULES: "true",
       ORBIT_MCP_CIMD_HOSTS: "client.test",
       MCP_RESOURCE: resource,
@@ -892,6 +895,79 @@ describe.skipIf(!enabled)(
       expect(
         (await rpc("tools/list")).json().result.tools.map((t: any) => t.name),
       ).toContain("support_list_tickets");
+    });
+
+    it("discovers SEO reads, challenges missing consent and executes the approved read", async () => {
+      const { workspaceId, projectId } = project.owner;
+      await scoped(workspaceId, projectId, (tx) =>
+        tx.projectModule.create({
+          data: {
+            workspaceId,
+            projectId,
+            moduleId: "seo",
+            enabled: true,
+            moduleVersion: "1.0.0",
+            changedBy: userId,
+          },
+        }),
+      );
+      const call = () =>
+        rpc("tools/call", {
+          name: "seo_websites_list",
+          arguments: { projectId },
+        });
+      const discovered = await rpc("tools/list");
+      expect(discovered.statusCode).toBe(200);
+      const definition = discovered
+        .json()
+        .result.tools.find(
+          (t: { name: string }) => t.name === "seo_websites_list",
+        );
+      expect(definition).toMatchObject({
+        annotations: { readOnlyHint: true },
+        inputSchema: { required: ["projectId"] },
+        securitySchemes: [
+          { type: "oauth2", scopes: ["orbit:read", SEO_READ_SCOPE] },
+        ],
+      });
+      const refused = await call();
+      expect(refused.statusCode).toBe(200);
+      const refusal = refused.json().result;
+      expect(refusal.structuredContent.code).toBe("INSUFFICIENT_SCOPE");
+      expect(refusal._meta["mcp/www_authenticate"][0]).toContain(
+        SEO_READ_SCOPE,
+      );
+      const flow = await driver.connect({
+        scope: seoScopes,
+        consent: { scopes: seoScopes.split(" ") },
+      });
+      const issued = await driver.exchange(flow);
+      expect(issued.statusCode).toBe(200);
+      token = issued.json().access_token;
+      const response = await call();
+      expect(response.statusCode).toBe(200);
+      expect(response.json().result.structuredContent).toEqual({
+        websites: [],
+      });
+      const audit = await scoped(workspaceId, projectId, (tx) =>
+        tx.auditEvent.findFirst({
+          where: {
+            projectId,
+            action: "mcp.tool_call",
+            metadata: { path: ["tool"], equals: "seo_websites_list" },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { metadata: true },
+        }),
+      );
+      expect(audit?.metadata).toEqual({
+        tool: "seo_websites_list",
+        clientId: client,
+        grantId: expect.any(String),
+        durationMs: expect.any(Number),
+        outcome: "ok",
+        argsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
     });
   },
 );

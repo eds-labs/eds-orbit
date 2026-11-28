@@ -439,6 +439,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
             "orbit:issues",
             "orbit:social",
             "orbit:cms",
+            "orbit:seo.read",
           ],
           bearer_methods_supported: ["header"],
           // WP-M5: DPoP-bound tokens are verified (mcp-gateway-audit).

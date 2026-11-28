@@ -96,6 +96,7 @@ x-api-environment: &api-environment
   ORBIT_ADS: ${ORBIT_ADS:-false}
   # Content module (ADR 0029): off until its rollout is approved.
   ORBIT_CMS: ${ORBIT_CMS:-false}
+  ORBIT_SEO: ${ORBIT_SEO:-false}
   # Versioned /api/v1 and project API keys (ADR 0029): off until its rollout is approved.
   ORBIT_API_V1: ${ORBIT_API_V1:-false}
   # Outbound webhooks to project endpoints (ADR 0029): off until its rollout is approved.

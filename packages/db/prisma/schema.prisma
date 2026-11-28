@@ -145,6 +145,8 @@ model Project {
   workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members          ProjectMember[]
   homeLayouts      ProjectHomeLayout[]
+  seoWebsites      SeoWebsite[]
+  seoOAuthStates   SeoOAuthState[]
   entities         Entity[]
   outbox           Outbox[]
   budgets          BudgetReservation[]
@@ -3125,4 +3127,52 @@ model CmsRedirect {
   createdBy   String
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   removedAt   DateTime? @db.Timestamptz(3)
+}
+
+/// A canonical website registered for organic search monitoring.
+model SeoWebsite {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  name        String
+  url         String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  archivedAt  DateTime? @db.Timestamptz(3)
+  project     Project   @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade, map: "SeoWebsite_project_fkey")
+  properties  SeoWebsiteProperty[]
+
+  @@unique([workspaceId, projectId, id], map: "SeoWebsite_tenant_key")
+}
+
+/// One provider's property binding for a website. The provider validates the vault connection and its grant.
+model SeoWebsiteProperty {
+  workspaceId  String     @db.Uuid
+  projectId    String     @db.Uuid
+  websiteId    String     @db.Uuid
+  provider     String
+  connectionId String     @db.Uuid
+  propertyId   String
+  website      SeoWebsite @relation(fields: [workspaceId, projectId, websiteId], references: [workspaceId, projectId, id], onDelete: Cascade, map: "SeoWebsiteProperty_website_fkey")
+
+  @@id([workspaceId, projectId, websiteId, provider])
+}
+
+/// Expiring, project- and owner-bound PKCE state for Search Console OAuth.
+model SeoOAuthState {
+  id                   String    @id @db.Uuid
+  workspaceId          String    @db.Uuid
+  projectId            String    @db.Uuid
+  stateHash            String    @unique
+  appConnectionId      String    @db.Uuid
+  accountConnectionId  String?   @db.Uuid
+  userId               String
+  verifierCiphertext   String
+  verifierKeyId        String
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt            DateTime  @db.Timestamptz(3)
+  usedAt               DateTime? @db.Timestamptz(3)
+
+  project Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade, map: "SeoOAuthState_project_fkey")
+
+  @@index([workspaceId, projectId, expiresAt])
 }

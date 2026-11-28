@@ -42,6 +42,7 @@ import { socialWeb } from "./social/manifest";
 import { webmailWeb } from "./webmail/manifest";
 import { adsWeb } from "./ads/manifest";
 import { cmsWeb } from "./cms/manifest";
+import { seoWeb } from "./seo/manifest";
 import { AdsDataDeletionView } from "./ads/data-deletion";
 import { DataDeletionView } from "./social/data-deletion";
 
@@ -385,5 +386,6 @@ export const webRegistry: WebRegistry = {
     webmailWeb,
     adsWeb,
     cmsWeb,
+    seoWeb,
   ],
 };

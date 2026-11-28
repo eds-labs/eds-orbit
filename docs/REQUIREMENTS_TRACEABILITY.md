@@ -1,5 +1,15 @@
 # Requirements traceability
 
+## SEO Core and Google Search Console (local)
+
+| Requirement | Verification |
+| --- | --- |
+| A project owner can enable or disable SEO independently of Marketing, project members use their effective SEO role, and denied organizations cannot read or write SEO. | `seo-core.integration.test.ts`, access matrix |
+| Multiple websites, provider-specific mappings and per-project website limits preserve tenant isolation and handle concurrent writes. | `seo-core.integration.test.ts`, RLS matrix |
+| Google Search Console uses owner-bound OAuth with PKCE, an encrypted credential and a read-only scope. | SEO provider tests |
+| The Orbit Assistant, configured agents and MCP share bounded SEO reads, with explicit OAuth consent for MCP. | SEO tool tests, MCP gateway and OAuth consent suites |
+| The SEO view and integration work in the responsive project shell. | `seo.spec.ts` |
+
 ## Personal project dashboard (local)
 
 | Requirement | Verification |

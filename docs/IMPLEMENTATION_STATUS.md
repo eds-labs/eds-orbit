@@ -1,5 +1,9 @@
 # Implementation status
 
+## SEO Core and Google Search Console (2026-11-28, local)
+
+SEO is an independent opt-in project module with organization entitlements, project roles, website and provider property binding, a central Google Search Console OAuth app, and scoped Search Analytics reads. Both read operations are available through Orbit's capability registry for assistants, configured agents and external MCP consent. The [repository analysis and implementation plan](plans/SEO_CORE.md) records ownership, reuse and migration. The [SEO guide](SEO.md) describes setup and limits.
+
 ## Personal project dashboard (2026-11-23, local)
 
 The project home has a personal widget catalog and responsive layout editor.

@@ -39,7 +39,7 @@ import { projectScope, type McpPrincipal } from "../mcp/principal.ts";
 import { principalModules } from "../mcp/visibility.ts";
 import { mcpApproveUrl } from "../mcp/proposals.ts";
 import { FINANCE_READ_SCOPE } from "../mcp/scopes.ts";
-import { assertDelegation, type Delegation } from "./delegation.ts";
+import { assertDelegation, requireSeoTaskConsent, type Delegation } from "./delegation.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 
 export const TASK_KIND = "orbit_tasks";
@@ -406,6 +406,7 @@ export async function createTask(
     !principal.scopes.has(FINANCE_READ_SCOPE)
   )
     throw new DomainError("MCP_FINANCE_CONSENT_REQUIRED", 403);
+  requireSeoTaskConsent(input.modules, principal.scopes);
   const modules = [...new Set(input.modules)].sort();
   const argsHash = hash({ ...input, modules });
   return userScoped(scope, async (tx) => {

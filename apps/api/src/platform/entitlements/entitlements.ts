@@ -22,6 +22,8 @@ export type Entitlements = {
   assistantPersonal: boolean;
   assistantVoice: boolean;
   integrationsAdvanced: boolean;
+  /** Active SEO websites allowed per project; null is unlimited. */
+  seoWebsitesMax: number | null;
 };
 
 /** The entitlements that are a yes or no. */
@@ -46,6 +48,7 @@ export function defaultEntitlements(): Entitlements {
     assistantPersonal: true,
     assistantVoice: true,
     integrationsAdvanced: true,
+    seoWebsitesMax: null,
   };
 }
 

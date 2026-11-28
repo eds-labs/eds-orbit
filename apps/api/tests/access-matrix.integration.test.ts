@@ -46,6 +46,7 @@ Object.assign(process.env, {
   ORBIT_ADS: "true",
   // Content module (ADR 0029): routes exist; the project never enables it.
   ORBIT_CMS: "true",
+  ORBIT_SEO: "true",
   // Versioned API and project API keys (ADR 0029, CH1.1).
   ORBIT_API_V1: "true",
   // Outbound webhooks (ADR 0029, CH1.3).
@@ -113,6 +114,7 @@ const PUBLIC_ROUTES = [
   // here, without one), then the owner's session who started the flow (pinned
   // in ads-oauth.integration.test.ts).
   "GET /api/ads/oauth/callback/{provider}",
+  "GET /api/seo/oauth/callback/google-search-console",
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",

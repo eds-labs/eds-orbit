@@ -509,6 +509,8 @@ describe("module contributions", () => {
       "ads.account.meta",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
+      "seo.app.google-search-console",
+      "seo.account.google-search-console",
       // The social module's developer apps and managed accounts (ADR 0020).
       "social.app.meta",
       "social.app.x",

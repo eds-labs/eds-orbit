@@ -139,6 +139,9 @@ const PROJECT_TABLES = [
   "AdOAuthState",
   "AdProviderThrottle",
   "AdSyncState",
+  "SeoWebsite",
+  "SeoWebsiteProperty",
+  "SeoOAuthState",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -258,6 +261,7 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     // ADR 0025: an ad account is unlinked by status and deleted only with
     // its project, so later spend history keeps its account.
     AdAccount: [true, true, true, false],
+    SeoWebsite: [true, true, true, false],
     // Finance records: posted entries, their documents and payments cannot
     // be deleted (spec §4); project deletion still cascades.
     ...Object.fromEntries(
@@ -801,6 +805,30 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       await seedSocial(tx, s, fileId);
       await seedWebmail(tx, s, mailbox.id);
       await seedAds(tx, s);
+      const seoWebsite = await tx.seoWebsite.create({
+        data: { ...t, name: "RLS SEO website", url: "https://rls.example.invalid/" },
+      });
+      await tx.seoWebsiteProperty.create({
+        data: {
+          ...t,
+          websiteId: seoWebsite.id,
+          provider: "google-search-console",
+          connectionId: randomUUID(),
+          propertyId: "sc-domain:rls.example.invalid",
+        },
+      });
+      await tx.seoOAuthState.create({
+        data: {
+          ...t,
+          id: randomUUID(),
+          userId: s.userId,
+          stateHash: randomUUID(),
+          appConnectionId: randomUUID(),
+          verifierCiphertext: "synthetic",
+          verifierKeyId: "synthetic",
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
       return inbox.id;
     });
   }
@@ -1494,11 +1522,27 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   });
 
   it("cannot insert rows into another project", async () => {
+    const bWebsite = await asScope(b, (tx) => tx.seoWebsite.findFirstOrThrow());
     const statements: [string, string, unknown[]][] = [
       [
         "Entity",
         `INSERT INTO "Entity" (id, "workspaceId", "projectId", kind, data, "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, 'missions', '{}', now())`,
         [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "SeoWebsite",
+        `INSERT INTO "SeoWebsite" (id, "workspaceId", "projectId", name, url) VALUES ($1::uuid, $2::uuid, $3::uuid, 'RLS', 'https://other.example.invalid')`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "SeoWebsiteProperty",
+        `INSERT INTO "SeoWebsiteProperty" ("workspaceId", "projectId", "websiteId", provider, "connectionId", "propertyId") VALUES ($1::uuid, $2::uuid, $3::uuid, 'google-search-console', $4::uuid, 'sc-domain:rls.example.invalid')`,
+        [b.workspaceId, b.projectId, bWebsite.id, randomUUID()],
+      ],
+      [
+        "SeoOAuthState",
+        `INSERT INTO "SeoOAuthState" (id, "workspaceId", "projectId", "userId", "stateHash", "appConnectionId", "verifierCiphertext", "verifierKeyId", "expiresAt") VALUES ($1::uuid, $2::uuid, $3::uuid, 'rls', $4, $5::uuid, 'rls', 'rls', now())`,
+        [randomUUID(), b.workspaceId, b.projectId, randomUUID(), randomUUID()],
       ],
       [
         "Outbox",

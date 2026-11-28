@@ -63,6 +63,7 @@ import {
 } from "./limits.ts";
 import { resolvePrincipal } from "./principal.ts";
 import { McpProposalDayCache } from "./proposals.ts";
+import { SEO_READ_SCOPE } from "./scopes.ts";
 
 /** Request body limit of the gateway (bytes). */
 export const MCP_BODY_LIMIT = 256 * 1024;
@@ -80,6 +81,7 @@ export const MCP_RESOURCE_SCOPES = [
   "orbit:issues",
   "orbit:social",
   "orbit:cms",
+  SEO_READ_SCOPE,
 ] as const;
 const PRM_PATH = "/.well-known/oauth-protected-resource";
 

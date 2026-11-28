@@ -42,6 +42,7 @@ import {
   SUPPORT_SCOPE,
   SOCIAL_SCOPE,
   CMS_SCOPE,
+  SEO_READ_SCOPE,
 } from "./scopes.ts";
 
 export type McpScope = "orbit:read" | "orbit:propose" | "orbit:write";
@@ -239,9 +240,8 @@ export async function principalModules(
  * client cannot learn which scope to request. This never reads ticket content.
  * Base risk scopes, current membership, modules, roles and flags still apply.
  * authorizeMcpCall always uses the original token/grant intersection.
- * The content scopes (`orbit:support`, `orbit:finance.read`,
- * `orbit:finance.extract`, the work scopes, `orbit:social`, `orbit:cms`) are assumed here so a client such as ChatGPT,
- * which asks for the scopes its listed tools declare, can request them.
+ * Content scopes are assumed here so clients can request the scopes their
+ * listed tools declare.
  * The write scope `orbit:write` (internal writes such as the Social media
  * library imports) is assumed for the same reason; `orbit:propose` is not,
  * so a user's choice not to allow proposals keeps them out of the list.
@@ -264,6 +264,7 @@ export async function visibleMcpToolsForDiscovery(
         WORK_CODING_SCOPE,
         SOCIAL_SCOPE,
         CMS_SCOPE,
+        SEO_READ_SCOPE,
       ]),
     },
     await projectScope(principal, projectId),
