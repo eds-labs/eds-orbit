@@ -374,35 +374,45 @@ export function OrganizationProjects({
       <h3>{text("projectsTitle")}</h3>
       {projects.length === 0 ? <p>{text("none")}</p> : null}
       {projects.map((project) => (
-        <table key={project.id}>
-          <caption>{project.name}</caption>
-          <tbody>
-            {project.integrations.length === 0 ? (
-              <tr>
-                <td>{text("none")}</td>
-              </tr>
-            ) : (
-              project.integrations.map((i) => {
-                const known = catalog.find((e) => e.id === i.provider);
-                const provider = known ? known.label[locale] || known.label.en : i.label;
-                return (
-                  <tr key={i.id}>
-                    <th scope="row">
-                      {provider}
-                      {provider !== i.label ? <span> {i.label}</span> : null}
-                    </th>
-                    <td>
-                      <StateBadge state={i.state} locale={locale} />
-                    </td>
-                    <td>
-                      {text("lastCheck")}: {lastCheck(i.checkedAt)}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+        <div
+          className="table-wrap"
+          key={project.id}
+          role="region"
+          aria-label={project.name}
+          tabIndex={0}
+        >
+          <table className="table-plain-head">
+            <caption>{project.name}</caption>
+            <tbody>
+              {project.integrations.length === 0 ? (
+                <tr>
+                  <td>{text("none")}</td>
+                </tr>
+              ) : (
+                project.integrations.map((i) => {
+                  const known = catalog.find((e) => e.id === i.provider);
+                  const provider = known
+                    ? known.label[locale] || known.label.en
+                    : i.label;
+                  return (
+                    <tr key={i.id}>
+                      <th scope="row">
+                        {provider}
+                        {provider !== i.label ? <span> {i.label}</span> : null}
+                      </th>
+                      <td>
+                        <StateBadge state={i.state} locale={locale} />
+                      </td>
+                      <td>
+                        {text("lastCheck")}: {lastCheck(i.checkedAt)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       ))}
     </section>
   );

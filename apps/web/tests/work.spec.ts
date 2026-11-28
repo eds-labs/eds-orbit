@@ -135,12 +135,12 @@ test("the overview shows the figures and links to the board", async ({ page }) =
 });
 
 
-test("long initiative names keep board and tasks within the phone viewport", async ({ page }) => {
+test("long initiative names keep board and tasks within the viewport", async ({ page }) => {
   await signIn(page);
   await api(page.request, "POST", `/projects/${projectId}/work/tasks`, {
     title: "Check the board layout on a phone",
   });
-  for (const width of [320, 390]) {
+  for (const width of [320, 390, 760, 761, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     for (const view of ["board", "tasks"]) {
       await page.goto(`/p/${projectId}/work/${view}`);

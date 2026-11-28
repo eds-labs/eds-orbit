@@ -222,42 +222,37 @@ function EntryListView() {
       <ResourceError error={list.error} retry={list.refresh} />
       {list.data &&
         (list.data.items.length ? (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th scope="col">{t.entries.titleLabel}</th>
-                  <th scope="col">{t.entries.filterStatus}</th>
-                  <th scope="col">{t.entries.localeLabel}</th>
-                  <th scope="col">{t.entries.updated}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <a href={`?entry=${item.id}`}>
-                        <strong>{item.title || t.entries.untitled}</strong>
-                      </a>
-                      {item.excerpt && (
-                        <p className="field-hint">{item.excerpt}</p>
-                      )}
-                    </td>
-                    <td>
-                      <Badge tone={STATUS_TONE[item.status]}>
-                        {t.status[item.status]}
-                      </Badge>{" "}
-                      {item.pendingRequest && (
-                        <Badge tone="warning">{t.entries.waiting}</Badge>
-                      )}
-                    </td>
-                    <td>{item.locale}</td>
-                    <td>{when(item.updatedAt, locale, project.timezone)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="settings-rows" aria-label={t.entries.title}>
+            {list.data.items.map((item) => (
+              <li key={item.id}>
+                <a
+                  className="list-row cms-entry-list-row"
+                  href={`?entry=${encodeURIComponent(item.id)}`}
+                >
+                  <span className="cms-entry-list-copy">
+                    <strong className="list-row-title">
+                      {item.title || t.entries.untitled}
+                    </strong>
+                    {item.excerpt && (
+                      <span className="list-row-meta">{item.excerpt}</span>
+                    )}
+                  </span>
+                  <span className="list-row-meta cms-entry-meta">
+                    <Badge tone={STATUS_TONE[item.status]}>
+                      {t.status[item.status]}
+                    </Badge>
+                    {item.pendingRequest && (
+                      <Badge tone="warning">{t.entries.waiting}</Badge>
+                    )}
+                    <span>
+                      {item.locale} ·{" "}
+                      {when(item.updatedAt, locale, project.timezone)}
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
         ) : (
           <div className="cms-entries-empty">
             <Empty title={filtered ? t.entries.empty : t.entries.emptyAll} />

@@ -74,7 +74,7 @@ export function SupportInbox() {
               setSearch(q);
             }}
           >
-            <label className="support-search">
+            <label className="support-search search-field">
               <Search aria-hidden size={16} />
               <Input
                 aria-label={t.search}

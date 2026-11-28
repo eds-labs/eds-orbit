@@ -927,11 +927,13 @@ function BrandKitLoaded() {
     options.refresh();
     assets.refresh();
   };
+  // A successful response can be empty before a profile has been saved.
+  const stored = profile.data?.data ? profile.data : null;
   const gate = loadGate({
     profile: {
       loading: profile.loading,
       error: profile.error,
-      hasData: !!profile.data,
+      hasData: !!stored,
     },
     options: {
       loading: options.loading,
@@ -955,7 +957,6 @@ function BrandKitLoaded() {
         </Button>
       </Alert>
     );
-  const stored = profile.data;
   if (gate.kind === "no-profile" || !stored)
     return <Alert>{t("noProfile", de)}</Alert>;
   const current = edit ?? startEdit(stored);

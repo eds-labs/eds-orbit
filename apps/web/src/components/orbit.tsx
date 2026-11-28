@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -170,6 +170,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     [revision, setRevision] = useState(0),
     [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set()),
     [collapsedLoaded, setCollapsedLoaded] = useState(false);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  function openMenu(trigger: HTMLButtonElement) {
+    menuTrigger.current = trigger;
+    setMenu(true);
+  }
   // Cached across the remount on every navigation (session.ts).
   const setup = useSessionResource<{
     configured: boolean;
@@ -544,14 +549,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   }, [centerRedirect, router]);
   useEffect(() => {
     if (!menu) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    const previous = menuTrigger.current;
+    const sidebar = document.getElementById("workspace-navigation");
     const focusable = () =>
       Array.from(
         sidebar?.querySelectorAll<HTMLElement>(
-          "a[href],button:not([disabled]),select",
+          "a[href],button:not([disabled]),select:not([disabled])",
         ) || [],
-      );
+      ).filter((node) => node.getClientRects().length > 0);
     focusable()[0]?.focus();
     const oldOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -574,9 +579,15 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       }
     }
     document.addEventListener("keydown", handle);
+    const mobile = matchMedia("(max-width: 760px)");
+    const closeOnDesktop = () => {
+      if (!mobile.matches) setMenu(false);
+    };
+    mobile.addEventListener("change", closeOnDesktop);
     return () => {
       document.body.style.overflow = oldOverflow;
       document.removeEventListener("keydown", handle);
+      mobile.removeEventListener("change", closeOnDesktop);
       previous?.focus();
     };
   }, [menu]);
@@ -1191,6 +1202,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           />
         )}
         <aside
+          id="workspace-navigation"
           className={cn("sidebar", menu && "sidebar-open")}
           role={menu ? "dialog" : undefined}
           aria-modal={menu || undefined}
@@ -1276,7 +1288,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               variant="ghost"
               size="icon"
               aria-label={t("menu")}
-              onClick={() => setMenu(true)}
+              aria-expanded={menu}
+              aria-controls="workspace-navigation"
+              onClick={(event) => openMenu(event.currentTarget)}
             >
               <Menu />
             </Button>
@@ -1360,7 +1374,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             </footer>
           </main>
         </div>
-        <nav className="mobile-nav" aria-label="Mobile workspace">
+        <nav
+          className="mobile-nav"
+          aria-label="Mobile workspace"
+          inert={menu || undefined}
+        >
           {mobileBar.map((n) => {
             const Icon = n.nav!.icon;
             const mobile = n.nav!.mobile!;
@@ -1380,8 +1398,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               </Link>
             );
           })}
-          <button onClick={() => setMenu(true)}>
-            <MoreHorizontal />
+          <button
+            type="button"
+            aria-expanded={menu}
+            aria-controls="workspace-navigation"
+            onClick={(event) => openMenu(event.currentTarget)}
+          >
+            <MoreHorizontal aria-hidden="true" />
             <span>{t("more")}</span>
             <NavBadge
               count={moreBadge.count}

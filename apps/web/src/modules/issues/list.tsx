@@ -81,7 +81,7 @@ export function IssueListView() {
               setSearch(q.trim());
             }}
           >
-            <label className="support-search">
+            <label className="support-search search-field">
               <Search aria-hidden size={16} />
               <Input aria-label={t.search} placeholder={t.search} value={q} onChange={(e) => setQ(e.target.value)} />
             </label>

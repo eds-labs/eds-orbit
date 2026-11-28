@@ -70,30 +70,38 @@ export function CmsOverview() {
         />
       </div>
       {status.data && (
-        <section aria-labelledby="cms-approvers">
-          <h2 id="cms-approvers">{t.approversTitle}</h2>
+        <section className="panel" aria-labelledby="cms-approvers">
+          <div className="panel-head">
+            <h2 id="cms-approvers">{t.approversTitle}</h2>
+          </div>
           <p>{t.approvers[status.data.settings.publishApprovers]}</p>
           {status.data.settings.fourEyes && <p>{t.fourEyes}</p>}
         </section>
       )}
       {s &&
         (s.recent.length ? (
-          <section aria-labelledby="cms-recent">
-            <h2 id="cms-recent">{t.overview.recent}</h2>
-            <ul className="settings-rows">
+          <section className="panel" aria-labelledby="cms-recent">
+            <div className="panel-head">
+              <h2 id="cms-recent">{t.overview.recent}</h2>
+            </div>
+            <ul className="settings-rows cms-recent">
               {s.recent.map((r) => (
-                <li key={r.id} className="work-settings-row">
-                  <div>
-                    <AppLink
-                      href={`${entries}?entry=${encodeURIComponent(r.id)}`}
-                    >
-                      <strong>{r.title || t.entries.untitled}</strong>
-                    </AppLink>{" "}
-                    <Badge>{t.status[r.status]}</Badge>
-                    <p className="field-hint">
-                      {r.locale} · {when(r.updatedAt, locale, project.timezone)}
-                    </p>
-                  </div>
+                <li key={r.id}>
+                  <AppLink
+                    className="list-row"
+                    href={`${entries}?entry=${encodeURIComponent(r.id)}`}
+                  >
+                    <strong className="list-row-title">
+                      {r.title || t.entries.untitled}
+                    </strong>
+                    <span className="list-row-meta cms-entry-meta">
+                      <Badge>{t.status[r.status]}</Badge>
+                      <span>
+                        {r.locale} ·{" "}
+                        {when(r.updatedAt, locale, project.timezone)}
+                      </span>
+                    </span>
+                  </AppLink>
                 </li>
               ))}
             </ul>

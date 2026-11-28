@@ -447,8 +447,8 @@ function SourceRowView({
                 {!githubModelUse && (
                   <p className="muted">
                     {de
-                      ? "Erlaube die KI-Nutzung in den Einstellungen dieser Quelle, um die automatische Analyse zu aktivieren."
-                      : "Allow AI use in this source's settings to enable automatic analysis."}
+                      ? "Erlaube die KI-Nutzung für diese Quelle, um die automatische Analyse zu aktivieren."
+                      : "Allow AI use for this source to enable automatic analysis."}
                   </p>
                 )}
                 <div className="form-actions">
